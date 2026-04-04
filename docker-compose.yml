@@ -1,0 +1,32 @@
+services:
+  musicserver-backend:
+    image: ghcr.io/fanciulli/musicserver-backend:latest
+    container_name: backend
+    ports:
+      - "3000:3000"
+    volumes:
+      - /change/me:/data/music
+    environment:
+      - MONGO_URI=mongodb://music-server-mongo:27017
+    restart: unless-stopped
+
+  musicserver-admin-ui:
+    image: ghcr.io/fanciulli/musicserver-admin-ui:main
+    container_name: admin-ui
+    ports:
+      - "3001:3001"
+    environment:
+      - MUSICSERVER_API_BASE_URL=http://musicserver-backend:3000
+    restart: unless-stopped
+
+  music-server-mongo:
+    image: mongo:7
+    container_name: mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    restart: unless-stopped
+
+volumes:
+  mongo_data:
