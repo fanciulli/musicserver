@@ -20,6 +20,7 @@ If you want to quickly start testing Music Server you can use the Docker Compose
 Open the file `docker-compose.yml` and modify the `/change/me` to a local path where music is stored. Save the file and run it with
 
 ```
+docker compose pull
 docker compose -f docker-compose.yml up -d
 ```
 
