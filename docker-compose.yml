@@ -11,7 +11,7 @@ services:
     restart: unless-stopped
 
   musicserver-admin-ui:
-    image: ghcr.io/fanciulli/musicserver-admin-ui:main
+    image: ghcr.io/fanciulli/musicserver-admin-ui:latest
     container_name: admin-ui
     ports:
       - "3001:3001"
