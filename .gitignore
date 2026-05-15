@@ -1,0 +1,6 @@
+packaging/.work/
+packaging/.cache/
+packaging/dist/
+build-src/
+node_modules/
+.DS_Store
