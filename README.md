@@ -53,3 +53,66 @@ Restart Volumio. In Volumio UI go to Plugins > Music Server and click on `Settin
 ![Plugin Settings on Volumio](./media/plugin_settings_on_volumio.png)
 
 Restart Volumio. The Browse shall now show a new source.
+
+## Standalone redistributable (no Docker)
+
+This repo can build a self-contained bundle that includes the backend, the admin UI, a Node.js runtime, and MongoDB. End users unzip the archive and double-click one launcher binary — no Node, MongoDB, or Docker required on the target machine.
+
+### Build prerequisites
+
+- Node.js 20 LTS (only needed on the build machine)
+- `git`, `curl`, `tar`, `unzip`, `zip`
+- macOS builders also need the Xcode command-line tools for `codesign`
+
+### Build for your current platform
+
+```bash
+node packaging/build.mjs --target host
+```
+
+Outputs:
+
+- `packaging/dist/musicserver-<os>-<arch>/` — the assembled bundle
+- `packaging/dist/musicserver-<os>-<arch>.tar.gz` (or `.zip` on Windows targets)
+
+### Build for a specific platform
+
+```bash
+node packaging/build.mjs --target macos-arm64
+node packaging/build.mjs --target macos-x64
+node packaging/build.mjs --target linux-x64
+node packaging/build.mjs --target linux-arm64
+node packaging/build.mjs --target win-x64
+```
+
+Cross-target builds work because the launcher is built by injecting a SEA blob into a downloaded target-platform `node` binary. macOS targets built from a non-macOS host will not be code-signed (Gatekeeper will block them); produce the macOS bundle on a Mac for distribution.
+
+### Useful flags
+
+- `--offline` — skip `git pull` and re-downloads (use cached sources and runtimes)
+- `--skip-archive` — leave the unzipped bundle in `packaging/dist/` without producing a `.tar.gz`/`.zip`
+
+### Running the bundle
+
+Unzip the archive, then:
+
+- **macOS / Linux:** `./musicserver`
+- **Windows:** double-click `musicserver.exe`
+
+The launcher starts MongoDB on `127.0.0.1:27017`, the backend on `:3000`, and the admin UI on `:3001`, then opens `http://localhost:3001` in the default browser. Data lives under `data/` next to the binary (MongoDB files in `data/mongodb`, all logs in `data/logs`).
+
+Press `Ctrl+C` (or close the console window) to stop everything cleanly.
+
+### Bundle layout
+
+```
+musicserver-<os>-<arch>/
+  musicserver(.exe)        ← launcher (the only thing users run)
+  runtime/                 ← bundled Node.js + mongod
+  app/backend/             ← compiled Fastify server
+  app/ui/                  ← Next.js standalone build
+  data/                    ← created on first run (DB + logs)
+  BUILD-INFO.txt           ← target, versions, and source commit SHAs
+```
+
+See `docs/superpowers/specs/2026-05-15-packaging-design.md` for the full design rationale, including why this is a per-platform launcher + sibling tree rather than a literal single `.exe`.
