@@ -38,7 +38,7 @@
     <div class="row">
       <span id="backend-dot" class="dot"></span>
       <span class="name">Backend API</span>
-      <span class="detail">http://localhost:3000</span>
+      <span id="backend-detail" class="detail">http://localhost:3000</span>
     </div>
 
     <div id="msg" class="msg">Starting…</div>
@@ -50,6 +50,8 @@
         if (!status) return;
         document.getElementById("mongo-dot").classList.toggle("up", !!status.mongo);
         document.getElementById("backend-dot").classList.toggle("up", !!status.backend);
+        document.getElementById("backend-detail").textContent =
+          (status.https ? "https" : "http") + "://localhost:3000";
         if (status.message) document.getElementById("msg").textContent = status.message;
       }
 

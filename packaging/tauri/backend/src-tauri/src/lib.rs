@@ -2,8 +2,11 @@
 //
 // This Tauri app is a thin supervisor: it starts a bundled MongoDB instance and
 // the Music Server backend (run with a bundled Node.js runtime), then keeps them
-// alive. It deliberately shows no administrative UI — only a tray icon and a
-// small status window. The backend API is exposed on 127.0.0.1:3000.
+// alive. It deliberately shows no administrative UI — only a tray icon, a small
+// status window, and a settings window (HTTPS configuration). The backend API is
+// exposed on 0.0.0.0:3000 (HTTP or HTTPS depending on the saved settings).
+
+mod settings;
 
 use std::net::{SocketAddr, TcpStream};
 use std::path::PathBuf;
@@ -18,6 +21,8 @@ use tauri::{AppHandle, Emitter, Manager, RunEvent, WindowEvent};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
+use settings::Settings;
+
 const HOST: &str = "127.0.0.1";
 const MONGO_PORT: u16 = 27017;
 const BACKEND_PORT: u16 = 3000;
@@ -27,27 +32,69 @@ const BACKEND_PORT: u16 = 3000;
 struct Status {
     mongo: bool,
     backend: bool,
+    https: bool,
     message: String,
+}
+
+/// A supervised child process tagged with a stable name.
+struct Managed {
+    name: &'static str,
+    child: CommandChild,
 }
 
 /// Shared application state.
 #[derive(Default)]
 struct AppState {
-    children: Mutex<Vec<CommandChild>>,
+    children: Mutex<Vec<Managed>>,
     status: Mutex<Status>,
+    settings: Mutex<Settings>,
 }
+
+// ── commands ─────────────────────────────────────────────────────────────────
 
 #[tauri::command]
 fn get_status(state: tauri::State<'_, AppState>) -> Status {
     state.status.lock().unwrap().clone()
 }
 
+#[tauri::command]
+fn get_settings(state: tauri::State<'_, AppState>) -> Settings {
+    state.settings.lock().unwrap().clone()
+}
+
+#[tauri::command]
+fn apply_settings(app: AppHandle, new_settings: Settings) -> Result<(), String> {
+    settings::save(&app, &new_settings)?;
+    *app.state::<AppState>().settings.lock().unwrap() = new_settings;
+
+    // Restart only the backend (Mongo is unaffected) on a background thread so
+    // the command returns immediately; the UI tracks progress via status events.
+    let handle = app.clone();
+    thread::spawn(move || {
+        if let Err(e) = restart_backend(&handle) {
+            set_message(&handle, &format!("Restart failed: {e}"));
+            eprintln!("[backend-launcher] restart failed: {e}");
+        }
+    });
+    Ok(())
+}
+
+// ── app entry ────────────────────────────────────────────────────────────────
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(AppState::default())
-        .invoke_handler(tauri::generate_handler![get_status])
+        .invoke_handler(tauri::generate_handler![
+            get_status,
+            get_settings,
+            apply_settings
+        ])
         .setup(|app| {
+            // Load persisted settings into state before anything reads them.
+            let loaded = settings::load(app.handle());
+            *app.state::<AppState>().settings.lock().unwrap() = loaded;
+
             build_tray(app.handle())?;
 
             // Start MongoDB + backend on a background thread so the UI event
@@ -62,8 +109,8 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            // Closing the status window only hides it; the services keep running.
-            // Use the tray "Quit" item to stop everything.
+            // Closing a window only hides it; the services keep running. Use the
+            // tray "Quit" item to stop everything.
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let _ = window.hide();
                 api.prevent_close();
@@ -73,7 +120,7 @@ pub fn run() {
         .expect("error while building Music Server backend")
         .run(|app, event| {
             if let RunEvent::Exit = event {
-                kill_children(app);
+                kill_all(app);
             }
         });
 }
@@ -111,16 +158,30 @@ fn start_services(app: &AppHandle) -> Result<(), String> {
         .spawn()
         .map_err(|e| format!("failed to spawn mongod: {e}"))?;
     drain_output(app, "mongod", rx);
-    push_child(app, child);
+    push_child(app, "mongod", child);
 
     if !wait_for_port(MONGO_PORT, Duration::from_secs(30)) {
         return Err("timed out waiting for MongoDB".into());
     }
     mark_mongo_up(app);
 
-    // 2. Backend. The backend resolves runtime paths relative to its CWD, so we
-    //    run it from inside its own `dist/` directory (mirrors `cd dist; node index.js`).
-    set_message(app, "Starting backend…");
+    // 2. Backend
+    spawn_backend(app)?;
+    if !wait_for_port(BACKEND_PORT, Duration::from_secs(60)) {
+        return Err("timed out waiting for backend".into());
+    }
+    mark_backend_up(app);
+    Ok(())
+}
+
+/// Spawn the backend Node process using the current settings (HTTPS config).
+fn spawn_backend(app: &AppHandle) -> Result<(), String> {
+    let current = app.state::<AppState>().settings.lock().unwrap().clone();
+    let (cert, key) = settings::effective_cert_paths(app, &current)?;
+    let https = current.https.enabled;
+
+    // The backend resolves runtime paths relative to its CWD, so we run it from
+    // inside its own `dist/` directory (mirrors `cd dist; node index.js`).
     let backend_dist = app
         .path()
         .resource_dir()
@@ -135,18 +196,35 @@ fn start_services(app: &AppHandle) -> Result<(), String> {
         .map_err(|e| e.to_string())?
         .current_dir(backend_dist)
         .env("MONGO_URI", format!("mongodb://{HOST}:{MONGO_PORT}"))
+        .env("HTTPS_ENABLED", if https { "true" } else { "false" })
+        .env("TLS_CERT_PATH", path_str(&cert))
+        .env("TLS_KEY_PATH", path_str(&key))
         .args(["index.js"])
         .spawn()
         .map_err(|e| format!("failed to spawn backend: {e}"))?;
     drain_output(app, "backend", rx);
-    push_child(app, child);
+    push_child(app, "backend", child);
+    Ok(())
+}
 
+/// Stop and re-launch just the backend to apply new settings.
+fn restart_backend(app: &AppHandle) -> Result<(), String> {
+    set_message(app, "Applying settings — restarting backend…");
+    update_status(app, |s| s.backend = false);
+    kill_named(app, "backend");
+
+    if !wait_for_port_free(BACKEND_PORT, Duration::from_secs(15)) {
+        return Err(format!("port {BACKEND_PORT} did not free up"));
+    }
+    spawn_backend(app)?;
     if !wait_for_port(BACKEND_PORT, Duration::from_secs(60)) {
-        return Err("timed out waiting for backend".into());
+        return Err("timed out waiting for backend to restart".into());
     }
     mark_backend_up(app);
     Ok(())
 }
+
+// ── port helpers ─────────────────────────────────────────────────────────────
 
 fn wait_for_port(port: u16, timeout: Duration) -> bool {
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
@@ -162,8 +240,26 @@ fn wait_for_port(port: u16, timeout: Duration) -> bool {
     }
 }
 
+fn wait_for_port_free(port: u16, timeout: Duration) -> bool {
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    let deadline = Instant::now() + timeout;
+    loop {
+        if TcpStream::connect_timeout(&addr, Duration::from_millis(300)).is_err() {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        thread::sleep(Duration::from_millis(250));
+    }
+}
+
 /// Forward a sidecar's stdout/stderr lines to the parent's stderr (for logs).
-fn drain_output(app: &AppHandle, name: &'static str, mut rx: tauri::async_runtime::Receiver<CommandEvent>) {
+fn drain_output(
+    app: &AppHandle,
+    name: &'static str,
+    mut rx: tauri::async_runtime::Receiver<CommandEvent>,
+) {
     let _ = app;
     tauri::async_runtime::spawn(async move {
         while let Some(event) = rx.recv().await {
@@ -181,21 +277,39 @@ fn drain_output(app: &AppHandle, name: &'static str, mut rx: tauri::async_runtim
     });
 }
 
-// ── state helpers ────────────────────────────────────────────────────────────
+// ── child + status helpers ───────────────────────────────────────────────────
 
-fn push_child(app: &AppHandle, child: CommandChild) {
-    app.state::<AppState>().children.lock().unwrap().push(child);
+fn push_child(app: &AppHandle, name: &'static str, child: CommandChild) {
+    app.state::<AppState>()
+        .children
+        .lock()
+        .unwrap()
+        .push(Managed { name, child });
 }
 
-fn kill_children(app: &AppHandle) {
-    let children: Vec<CommandChild> = {
+fn kill_named(app: &AppHandle, name: &str) {
+    let state = app.state::<AppState>();
+    let mut guard = state.children.lock().unwrap();
+    let mut keep = Vec::new();
+    for managed in guard.drain(..) {
+        if managed.name == name {
+            let _ = managed.child.kill();
+        } else {
+            keep.push(managed);
+        }
+    }
+    *guard = keep;
+}
+
+fn kill_all(app: &AppHandle) {
+    let children: Vec<Managed> = {
         let state = app.state::<AppState>();
         let mut guard = state.children.lock().unwrap();
         std::mem::take(&mut *guard)
     };
     // Stop in reverse start order (backend before mongod).
-    for child in children.into_iter().rev() {
-        let _ = child.kill();
+    for managed in children.into_iter().rev() {
+        let _ = managed.child.kill();
     }
 }
 
@@ -221,9 +335,12 @@ fn mark_mongo_up(app: &AppHandle) {
 }
 
 fn mark_backend_up(app: &AppHandle) {
+    let https = app.state::<AppState>().settings.lock().unwrap().https.enabled;
+    let scheme = if https { "https" } else { "http" };
     update_status(app, |s| {
         s.backend = true;
-        s.message = format!("Backend API ready on http://{HOST}:{BACKEND_PORT}");
+        s.https = https;
+        s.message = format!("Backend API ready on {scheme}://{HOST}:{BACKEND_PORT}");
     });
 }
 
@@ -231,10 +348,12 @@ fn mark_backend_up(app: &AppHandle) {
 
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let show = MenuItemBuilder::with_id("show", "Show status").build(app)?;
+    let settings_item = MenuItemBuilder::with_id("settings", "Settings…").build(app)?;
     let open_data = MenuItemBuilder::with_id("open_data", "Open data folder").build(app)?;
     let quit = MenuItemBuilder::with_id("quit", "Quit Music Server backend").build(app)?;
     let menu = MenuBuilder::new(app)
         .item(&show)
+        .item(&settings_item)
         .item(&open_data)
         .item(&quit)
         .build()?;
@@ -244,25 +363,28 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         .tooltip("Music Server Backend")
         .menu(&menu)
         .on_menu_event(|app, event| match event.id().as_ref() {
-            "show" => {
-                if let Some(win) = app.get_webview_window("main") {
-                    let _ = win.show();
-                    let _ = win.set_focus();
-                }
-            }
+            "show" => show_window(app, "main"),
+            "settings" => show_window(app, "settings"),
             "open_data" => {
                 if let Ok(dir) = app.path().app_data_dir() {
                     open_path(&dir);
                 }
             }
             "quit" => {
-                kill_children(app);
+                kill_all(app);
                 app.exit(0);
             }
             _ => {}
         })
         .build(app)?;
     Ok(())
+}
+
+fn show_window(app: &AppHandle, label: &str) {
+    if let Some(win) = app.get_webview_window(label) {
+        let _ = win.show();
+        let _ = win.set_focus();
+    }
 }
 
 // ── util ─────────────────────────────────────────────────────────────────────

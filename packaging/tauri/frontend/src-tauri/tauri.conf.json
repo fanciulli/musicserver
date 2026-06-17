@@ -18,6 +18,15 @@
         "minWidth": 800,
         "minHeight": 600,
         "resizable": true
+      },
+      {
+        "label": "settings",
+        "url": "settings.html",
+        "title": "Settings",
+        "width": 560,
+        "height": 480,
+        "resizable": true,
+        "visible": false
       }
     ],
     "security": {

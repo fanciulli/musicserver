@@ -17,6 +17,15 @@
         "height": 420,
         "resizable": true,
         "visible": false
+      },
+      {
+        "label": "settings",
+        "url": "settings.html",
+        "title": "Backend Settings",
+        "width": 560,
+        "height": 460,
+        "resizable": true,
+        "visible": false
       }
     ],
     "security": {

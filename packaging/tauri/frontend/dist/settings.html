@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Settings</title>
+    <style>
+      :root { color-scheme: light dark; }
+      * { box-sizing: border-box; }
+      body {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        margin: 0; padding: 22px; background: #0f172a; color: #e2e8f0; line-height: 1.5;
+      }
+      h1 { font-size: 1.1rem; margin: 0 0 2px; }
+      .sub { color: #94a3b8; font-size: 0.82rem; margin-bottom: 18px; }
+      fieldset { border: 1px solid #334155; border-radius: 8px; padding: 14px 14px 16px; margin: 0 0 16px; }
+      legend { padding: 0 6px; color: #cbd5e1; font-size: 0.85rem; }
+      label { display: block; font-size: 0.82rem; color: #cbd5e1; margin: 10px 0 4px; }
+      input[type="text"] {
+        width: 100%; padding: 7px 9px; border-radius: 6px; border: 1px solid #475569;
+        background: #1e293b; color: #e2e8f0; font-size: 0.85rem;
+      }
+      input[type="text"]:disabled { opacity: 0.5; }
+      .toggle { display: flex; align-items: center; gap: 9px; margin-top: 4px; }
+      .toggle input { width: 16px; height: 16px; }
+      .hint { color: #94a3b8; font-size: 0.74rem; margin-top: 4px; }
+      .actions { display: flex; gap: 10px; justify-content: flex-end; }
+      button { padding: 8px 14px; border-radius: 6px; border: 0; font-size: 0.85rem; cursor: pointer; }
+      .primary { background: #16a34a; color: white; }
+      .ghost { background: #334155; color: #e2e8f0; }
+      #note { font-size: 0.8rem; color: #38bdf8; min-height: 1.2em; margin-bottom: 10px; }
+    </style>
+  </head>
+  <body>
+    <h1>Settings</h1>
+    <div class="sub">Changes restart the UI and reload the window.</div>
+
+    <div id="note"></div>
+
+    <fieldset>
+      <legend>Backend connection</legend>
+      <label for="backend-url">Backend API base URL</label>
+      <input type="text" id="backend-url" placeholder="http://localhost:3000" />
+      <div class="hint">
+        Use <code>https://…</code> to connect to a backend served over HTTPS. Self-signed
+        backend certificates are accepted automatically.
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>UI HTTPS</legend>
+      <div class="toggle">
+        <input type="checkbox" id="https-enabled" />
+        <label for="https-enabled" style="margin: 0">Serve the UI over HTTPS (port 3001)</label>
+      </div>
+
+      <label for="cert-path">Certificate file (PEM)</label>
+      <input type="text" id="cert-path" placeholder="Leave empty to auto-generate a self-signed certificate" />
+
+      <label for="key-path">Private key file (PEM)</label>
+      <input type="text" id="key-path" placeholder="Leave empty to auto-generate" />
+
+      <div class="hint">
+        Leave both empty to auto-generate and persist a self-signed certificate in the
+        app data folder. For the desktop window, a certificate trusted by your OS avoids
+        security warnings.
+      </div>
+    </fieldset>
+
+    <div class="actions">
+      <button class="ghost" id="cancel">Close</button>
+      <button class="primary" id="save">Save &amp; restart</button>
+    </div>
+
+    <script>
+      const tauri = window.__TAURI__;
+      const $ = (id) => document.getElementById(id);
+
+      function syncEnabled() {
+        const on = $("https-enabled").checked;
+        $("cert-path").disabled = !on;
+        $("key-path").disabled = !on;
+      }
+
+      async function load() {
+        try {
+          const s = await tauri.core.invoke("get_settings");
+          $("backend-url").value = (s && s.backendUrl) || "http://localhost:3000";
+          const https = (s && s.https) || {};
+          $("https-enabled").checked = !!https.enabled;
+          $("cert-path").value = https.certPath || "";
+          $("key-path").value = https.keyPath || "";
+          syncEnabled();
+        } catch (e) {
+          $("note").textContent = "Could not load settings: " + e;
+        }
+      }
+
+      async function save() {
+        const payload = {
+          newSettings: {
+            backendUrl: $("backend-url").value.trim() || "http://localhost:3000",
+            https: {
+              enabled: $("https-enabled").checked,
+              certPath: $("cert-path").value.trim(),
+              keyPath: $("key-path").value.trim(),
+            },
+          },
+        };
+        try {
+          await tauri.core.invoke("apply_settings", payload);
+          $("note").textContent = "Saved. Restarting UI…";
+        } catch (e) {
+          $("note").textContent = "Save failed: " + e;
+        }
+      }
+
+      if (tauri) {
+        $("https-enabled").addEventListener("change", syncEnabled);
+        $("save").addEventListener("click", save);
+        $("cancel").addEventListener("click", () => tauri.window.getCurrentWindow().hide());
+        load();
+      }
+    </script>
+  </body>
+</html>

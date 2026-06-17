@@ -1,10 +1,13 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Permissions for the Music Server admin UI window and the Node sidecar",
-  "windows": ["main"],
+  "description": "Permissions for the Music Server admin UI windows and the Node sidecar",
+  "windows": ["main", "settings"],
   "permissions": [
     "core:default",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-set-focus",
     {
       "identifier": "shell:allow-execute",
       "allow": [

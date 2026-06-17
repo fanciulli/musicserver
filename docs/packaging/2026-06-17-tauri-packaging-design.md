@@ -87,7 +87,11 @@ app(s) and target it:
    `node-x86_64-unknown-linux-gnu`, `mongod-aarch64-apple-darwin`.
 4. Stages the compiled app into `src-tauri/resources/`:
    - backend → `resources/backend/{dist,node_modules,package.json}` (prod deps only)
-   - frontend → `resources/ui/` (Next.js standalone `server.js` + `.next` + `public` + `node_modules`)
+   - frontend → `resources/ui/` assembled like the admin-ui Dockerfile runner
+     stage: prod `node_modules`, the Next.js standalone tree, `.next/static` +
+     `public`, and the **custom `server.js`** (compiled from `server.ts`, which
+     adds HTTPS + self-signed cert generation) overwriting the standalone server,
+     plus the compiled `src/lib/tls` helper.
 
 ### 4.2 Backend supervisor (`backend/src-tauri/src/lib.rs`)
 
@@ -109,15 +113,44 @@ app(s) and target it:
 
 ### 4.3 Frontend supervisor (`frontend/src-tauri/src/lib.rs`)
 
-1. On a background thread, spawn the UI `node` sidecar with
+1. Load persisted settings.
+2. On a background thread, spawn the UI `node` sidecar with
    `cwd = resources/ui`, `args = ["server.js"]`,
-   `env PORT=3001, HOSTNAME=127.0.0.1, MUSICSERVER_API_BASE_URL=<configured>`.
-2. Wait for TCP `127.0.0.1:3001` (≤60 s).
-3. `window.navigate("http://localhost:3001/")`.
-4. `RunEvent::Exit` kills the UI sidecar.
+   `env PORT=3001, HOSTNAME=127.0.0.1, MUSICSERVER_API_BASE_URL=<backendUrl>,
+   HTTPS_ENABLED, TLS_CERT_PATH, TLS_KEY_PATH`.
+3. Wait for TCP `127.0.0.1:3001` (≤60 s).
+4. `window.navigate("http(s)://localhost:3001/")` (scheme follows the UI HTTPS setting).
+5. `RunEvent::Exit` (and closing the main window) kills the UI sidecar.
 
-The backend base URL defaults to `http://localhost:3000` and is overridable via
-the `MUSICSERVER_API_BASE_URL` environment variable.
+The custom `server.ts` also sets `NODE_TLS_REJECT_UNAUTHORIZED=0` for its own
+server-side fetches when the backend URL is `https`, so a self-signed backend
+certificate is trusted automatically.
+
+## 4.4 Settings & HTTPS
+
+Both apps persist configuration as `settings.json` in the per-user OS config
+directory (`app_config_dir`), so it survives reboots. Certificates are stored
+(and, when self-signed, auto-generated) under `app_data_dir/certs/`, which is
+writable and persistent (the app bundle itself is read-only).
+
+- **Backend** settings (system tray → *Settings…*): HTTPS on/off + optional
+  cert/key paths. Applied by restarting only the backend sidecar with
+  `HTTPS_ENABLED` / `TLS_CERT_PATH` / `TLS_KEY_PATH` (the Fastify backend already
+  honors these). MongoDB is left running.
+- **Frontend** settings (app menu → *Settings…*): backend base URL (http/https)
+  + UI HTTPS on/off with optional cert/key paths. Applied by restarting only the
+  UI sidecar and re-navigating the window.
+
+The settings UI is a small HTML page (`dist/settings.html`) in a dedicated window
+that reads/writes via the `get_settings` / `apply_settings` Tauri commands. The
+restart runs on a background thread and waits for the affected port to free up
+before re-spawning, so applying settings never blocks the UI.
+
+**Webview trust caveat:** the embedded webview validates TLS like a browser, so a
+self-signed *UI* certificate triggers a trust warning in the desktop window. Use
+an OS-trusted certificate for a warning-free desktop experience, or leave UI
+HTTPS off (the loopback UI is local-only). Self-signed certs are primarily useful
+for browser access from another machine.
 
 ## 5. Ports
 
@@ -133,10 +166,11 @@ another machine. MongoDB and the UI server stay on loopback.
 ## 6. Security / capabilities
 
 Tauri v2 capabilities restrict what the webview/JS can do. Each app grants
-`core:default` plus a scoped `shell:allow-execute` that allows **only** the
-bundled sidecars (`binaries/node`, and `binaries/mongod` for the backend). The
-status page uses a single read-only `get_status` command; no arbitrary shell
-access is exposed to the webview.
+`core:default`, a few `core:window` show/hide/focus permissions for the status
+and settings windows, plus a scoped `shell:allow-execute` that allows **only**
+the bundled sidecars (`binaries/node`, and `binaries/mongod` for the backend).
+The webview only reaches the app's own `get_status` / `get_settings` /
+`apply_settings` commands; no arbitrary shell access is exposed.
 
 ## 7. Build & distribution
 

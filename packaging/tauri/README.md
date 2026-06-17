@@ -8,11 +8,12 @@ Two independent packages are produced:
 
 | Package    | Contents                         | UI                              | Ports |
 | ---------- | -------------------------------- | ------------------------------- | ----- |
-| `backend`  | musicserver-backend + MongoDB    | none (system tray + status win) | API on `3000`, Mongo on `27017` (loopback) |
-| `frontend` | musicserver-admin-ui             | desktop window showing the UI   | UI on `3001` (loopback) |
+| `backend`  | musicserver-backend + MongoDB    | none (system tray + status/settings windows) | API on `3000`, Mongo on `27017` (loopback) |
+| `frontend` | musicserver-admin-ui             | desktop window showing the UI + Settings menu | UI on `3001` (loopback) |
 
 The frontend connects to the backend **over the network**, so the two packages
-can run on the same machine or on different machines.
+can run on the same machine or on different machines. Both the API and the UI can
+be served over **HTTPS** — see [Settings & HTTPS](#settings--https).
 
 ## Why sidecars + resources?
 
@@ -20,9 +21,10 @@ Neither component is a static web app:
 
 - The **backend** is a Fastify server that needs a Node.js runtime and a running
   MongoDB.
-- The **admin UI** is a Next.js app built with `output: "standalone"`; it has
-  server-side API routes and must run as a Node process — it is not a static
-  bundle that can be loaded straight into a webview.
+- The **admin UI** is a Next.js app with server-side API routes; it must run as a
+  Node process — it is not a static bundle that can be loaded straight into a
+  webview. It is run via the project's custom `server.ts` (compiled to
+  `server.js`), which adds HTTPS support and self-signed certificate generation.
 
 So each Tauri app bundles:
 
@@ -135,23 +137,61 @@ manually first.)
 
 - Starts `mongod` with `--dbpath <app-data>/mongodb` on `127.0.0.1:27017`.
 - Starts the backend (`node index.js` from its `dist/`) with
-  `MONGO_URI=mongodb://127.0.0.1:27017`; the backend listens on `0.0.0.0:3000`.
+  `MONGO_URI=mongodb://127.0.0.1:27017`; the backend listens on `0.0.0.0:3000`
+  (HTTP or HTTPS depending on the saved settings).
 - No main window on launch — a tray icon provides **Show status**,
-  **Open data folder**, and **Quit**. Closing the status window hides it; the
-  services keep running until you quit from the tray.
+  **Settings…**, **Open data folder**, and **Quit**. Closing a window hides it;
+  the services keep running until you quit from the tray.
 - MongoDB data and logs live in the OS app-data directory for
   `org.musicserver.backend`.
 
 ### Frontend package
 
-- Starts the admin UI (`node server.js`) on `127.0.0.1:3001`.
-- Points the window at `http://localhost:3001` once it is ready.
-- The backend base URL defaults to `http://localhost:3000` and can be overridden
-  with the `MUSICSERVER_API_BASE_URL` environment variable, e.g.:
+- Starts the admin UI (the custom `server.js`) on `127.0.0.1:3001`
+  (HTTP or HTTPS depending on the saved settings).
+- Points the window at `http(s)://localhost:3001` once it is ready.
+- The application menu **Music Server → Settings…** configures the backend URL
+  and UI HTTPS.
 
-  ```bash
-  MUSICSERVER_API_BASE_URL=http://192.168.1.50:3000 ./music-server
-  ```
+## Settings & HTTPS
+
+Both packages expose configuration that **persists across reboots** as a
+`settings.json` file in the per-user OS config directory:
+
+| OS      | Path |
+| ------- | ---- |
+| macOS   | `~/Library/Application Support/<identifier>/settings.json` |
+| Windows | `%APPDATA%\<identifier>\settings.json` |
+| Linux   | `~/.config/<identifier>/settings.json` |
+
+(`<identifier>` is `org.musicserver.backend` or `org.musicserver.frontend`.)
+
+### Backend — Settings (tray → **Settings…**)
+
+- **Serve the API over HTTPS** (on/off).
+- **Certificate** and **private key** paths (PEM). Leave both empty to
+  auto-generate and persist a self-signed certificate under
+  `<app-data>/certs/`; or point to your own certificate.
+
+Saving restarts only the backend (MongoDB keeps running) and applies
+`HTTPS_ENABLED` / `TLS_CERT_PATH` / `TLS_KEY_PATH` to it.
+
+### Frontend — Settings (menu → **Settings…**)
+
+- **Backend API base URL** (e.g. `http://localhost:3000` or
+  `https://host:3000`). When it is `https`, the UI server automatically trusts a
+  self-signed backend certificate (handled by `server.ts`).
+- **Serve the UI over HTTPS** with an optional certificate/key (same
+  auto-generate behaviour as the backend).
+
+Saving restarts only the UI sidecar and reloads the window.
+
+> **Self-signed certificates and the desktop window:** the embedded webview
+> validates TLS like a browser. A self-signed UI certificate will trigger a
+> trust warning in the desktop window; for a warning-free desktop experience use
+> a certificate trusted by the OS, or leave UI HTTPS off (the loopback UI is
+> local-only). Self-signed certs are most useful when the UI/API are reached from
+> another machine's browser.
 
 ## Versions
 

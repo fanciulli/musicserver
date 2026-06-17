@@ -176,8 +176,13 @@ function buildUi() {
   const dir = join(SRC_DIR, "ui");
   log("ui: installing deps");
   npmInstall(dir);
-  log("ui: npm run build");
+  log("ui: npm run build (next build)");
   run("npm", ["run", "build"], { cwd: dir, env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1" } });
+  // Compile the custom TLS server (server.ts -> server.js + src/lib/tls/*.js).
+  // This is the entry point we run in the bundle (it supports HTTPS and
+  // self-signed cert generation), mirroring the admin-ui Dockerfile.
+  log("ui: compiling custom server (tsc -p tsconfig.server.json)");
+  run("npx", ["tsc", "-p", "tsconfig.server.json"], { cwd: dir });
 }
 
 // ── runtime fetch ───────────────────────────────────────────────────────────
@@ -257,24 +262,53 @@ function stageBackend(nodeBin, mongodBin) {
   npmInstall(out, { prod: true, ignoreScripts: true });
 }
 
+// Stage the admin UI to run via its custom `server.ts` (HTTPS-capable), mirroring
+// the admin-ui Dockerfile runner stage:
+//   1. prod node_modules (provides `next`, `selfsigned`, …)
+//   2. overlay the Next.js standalone tree (.next + minimal runtime + server.js)
+//   3. add .next/static and public
+//   4. overwrite server.js with the compiled custom TLS server
+//   5. add the compiled TLS helper (src/lib/tls)
 function stageFrontend(nodeBin) {
   const appDir = join(TAURI_DIR, "frontend");
   placeBinary(nodeBin, appDir, "node");
 
-  const resDir = freshResources(appDir);
-  const out = join(resDir, "ui");
-  ensureDir(out);
   const uiSrc = join(SRC_DIR, "ui");
   const standaloneDir = join(uiSrc, ".next", "standalone");
   if (!existsSync(standaloneDir)) {
     fail(`Next.js standalone output not found at ${standaloneDir}. Ensure next.config has output: "standalone".`);
   }
+  const customServer = join(uiSrc, "server.js");
+  if (!existsSync(customServer)) {
+    fail(`Compiled custom server not found at ${customServer}. Ensure 'tsc -p tsconfig.server.json' ran.`);
+  }
+
+  const resDir = freshResources(appDir);
+  const out = join(resDir, "ui");
+  ensureDir(out);
+
+  // 1. prod deps
+  cpSync(join(uiSrc, "package.json"), join(out, "package.json"));
+  const lock = join(uiSrc, "package-lock.json");
+  if (existsSync(lock)) cpSync(lock, join(out, "package-lock.json"));
+  log("ui: installing prod deps into resources");
+  npmInstall(out, { prod: true, ignoreScripts: true });
+
+  // 2. standalone tree overlaid on top of prod deps
   cpSync(standaloneDir, out, { recursive: true });
-  // Next.js does not copy static + public into the standalone tree; do it now.
+
+  // 3. static + public (not copied into standalone by Next.js)
   const staticSrc = join(uiSrc, ".next", "static");
   if (existsSync(staticSrc)) cpSync(staticSrc, join(out, ".next", "static"), { recursive: true });
   const publicSrc = join(uiSrc, "public");
   if (existsSync(publicSrc)) cpSync(publicSrc, join(out, "public"), { recursive: true });
+
+  // 4. custom TLS server overwrites the standalone server.js
+  cpSync(customServer, join(out, "server.js"));
+
+  // 5. compiled TLS helper required by the custom server
+  const tlsSrc = join(uiSrc, "src", "lib", "tls");
+  if (existsSync(tlsSrc)) cpSync(tlsSrc, join(out, "src", "lib", "tls"), { recursive: true });
 }
 
 // ── util ────────────────────────────────────────────────────────────────────
