@@ -1,7 +1,0 @@
-{
-  "main": "launcher.cjs",
-  "output": "launcher.blob",
-  "disableExperimentalSEAWarning": true,
-  "useSnapshot": false,
-  "useCodeCache": true
-}

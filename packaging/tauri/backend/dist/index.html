@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Music Server Backend</title>
+    <style>
+      :root { color-scheme: light dark; }
+      * { box-sizing: border-box; }
+      body {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        margin: 0; padding: 24px; line-height: 1.5;
+        background: #0f172a; color: #e2e8f0;
+      }
+      h1 { font-size: 1.15rem; margin: 0 0 4px; }
+      .sub { color: #94a3b8; font-size: 0.85rem; margin-bottom: 20px; }
+      .row {
+        display: flex; align-items: center; gap: 10px;
+        padding: 10px 12px; border-radius: 8px; background: #1e293b; margin-bottom: 8px;
+      }
+      .dot { width: 10px; height: 10px; border-radius: 50%; background: #64748b; flex: none; }
+      .dot.up { background: #22c55e; }
+      .name { font-weight: 600; }
+      .detail { margin-left: auto; color: #94a3b8; font-size: 0.8rem; }
+      .msg { margin-top: 16px; font-size: 0.85rem; color: #cbd5e1; min-height: 1.2em; }
+      code { background: #334155; padding: 1px 6px; border-radius: 4px; }
+    </style>
+  </head>
+  <body>
+    <h1>Music Server — Backend</h1>
+    <div class="sub">Headless backend package. No admin UI is served here.</div>
+
+    <div class="row">
+      <span id="mongo-dot" class="dot"></span>
+      <span class="name">MongoDB</span>
+      <span class="detail">127.0.0.1:27017</span>
+    </div>
+    <div class="row">
+      <span id="backend-dot" class="dot"></span>
+      <span class="name">Backend API</span>
+      <span class="detail">http://localhost:3000</span>
+    </div>
+
+    <div id="msg" class="msg">Starting…</div>
+
+    <script>
+      const tauri = window.__TAURI__;
+
+      function render(status) {
+        if (!status) return;
+        document.getElementById("mongo-dot").classList.toggle("up", !!status.mongo);
+        document.getElementById("backend-dot").classList.toggle("up", !!status.backend);
+        if (status.message) document.getElementById("msg").textContent = status.message;
+      }
+
+      async function refresh() {
+        try {
+          render(await tauri.core.invoke("get_status"));
+        } catch (_) {
+          /* command not ready yet */
+        }
+      }
+
+      if (tauri) {
+        tauri.event.listen("status-changed", (e) => render(e.payload));
+        refresh();
+        setInterval(refresh, 2000);
+      }
+    </script>
+  </body>
+</html>

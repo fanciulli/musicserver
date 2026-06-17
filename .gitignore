@@ -1,6 +1,16 @@
-packaging/.work/
-packaging/.cache/
-packaging/dist/
+# Tauri packaging — build caches and generated artifacts
+packaging/tauri/.work/
+packaging/tauri/.cache/
+
+# Generated per-app sidecars and staged app resources (produced by prepare-sidecars.mjs)
+packaging/tauri/*/src-tauri/binaries/
+packaging/tauri/*/src-tauri/resources/
+
+# Rust / Tauri build output
+packaging/tauri/*/src-tauri/target/
+packaging/tauri/*/src-tauri/gen/
+packaging/tauri/*/src-tauri/Cargo.lock
+
 build-src/
 node_modules/
 .DS_Store

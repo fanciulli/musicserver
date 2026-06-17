@@ -54,65 +54,40 @@ Restart Volumio. In Volumio UI go to Plugins > Music Server and click on `Settin
 
 Restart Volumio. The Browse shall now show a new source.
 
-## Standalone redistributable (no Docker)
+## Desktop packages (Tauri)
 
-This repo can build a self-contained bundle that includes the backend, the admin UI, a Node.js runtime, and MongoDB. End users unzip the archive and double-click one launcher binary — no Node, MongoDB, or Docker required on the target machine.
+As an alternative to Docker, Music Server can be shipped as native desktop
+applications built with [Tauri v2](https://v2.tauri.app/). There are **two
+separate packages** (see issue
+[#110](https://github.com/fanciulli/musicserver-backend/issues/110)):
 
-### Build prerequisites
+- **Backend** — bundles the Music Server backend and MongoDB. It shows no admin
+  UI: it runs in the system tray (with a small status window) and exposes the
+  API on port `3000`.
+- **Frontend** — bundles the admin UI and shows it as a desktop application,
+  connecting to the backend over the network.
 
-- Node.js 20 LTS (only needed on the build machine)
-- `git`, `curl`, `tar`, `unzip`, `zip`
-- macOS builders also need the Xcode command-line tools for `codesign`
+All packaging code lives in this repository under `packaging/tauri/`. See
+[`packaging/tauri/README.md`](./packaging/tauri/README.md) for full build
+instructions and [`docs/packaging/2026-06-17-tauri-packaging-design.md`](./docs/packaging/2026-06-17-tauri-packaging-design.md)
+for the design rationale.
 
-### Build for your current platform
-
-```bash
-node packaging/build.mjs --target host
-```
-
-Outputs:
-
-- `packaging/dist/musicserver-<os>-<arch>/` — the assembled bundle
-- `packaging/dist/musicserver-<os>-<arch>.tar.gz` (or `.zip` on Windows targets)
-
-### Build for a specific platform
+### Quick build (current platform)
 
 ```bash
-node packaging/build.mjs --target macos-arm64
-node packaging/build.mjs --target macos-x64
-node packaging/build.mjs --target linux-x64
-node packaging/build.mjs --target linux-arm64
-node packaging/build.mjs --target win-x64
+# Backend package (backend + MongoDB)
+cd packaging/tauri/backend
+npm install
+npm run build        # runs prepare-sidecars then `tauri build`
+
+# Frontend package (admin UI)
+cd ../frontend
+npm install
+npm run build
 ```
 
-Cross-target builds work because the launcher is built by injecting a SEA blob into a downloaded target-platform `node` binary. macOS targets built from a non-macOS host will not be code-signed (Gatekeeper will block them); produce the macOS bundle on a Mac for distribution.
+Installers/bundles are produced under
+`packaging/tauri/<app>/src-tauri/target/release/bundle/`.
 
-### Useful flags
-
-- `--offline` — skip `git pull` and re-downloads (use cached sources and runtimes)
-- `--skip-archive` — leave the unzipped bundle in `packaging/dist/` without producing a `.tar.gz`/`.zip`
-
-### Running the bundle
-
-Unzip the archive, then:
-
-- **macOS / Linux:** `./musicserver`
-- **Windows:** double-click `musicserver.exe`
-
-The launcher starts MongoDB on `127.0.0.1:27017`, the backend on `:3000`, and the admin UI on `:3001`, then opens `http://localhost:3001` in the default browser. Data lives under `data/` next to the binary (MongoDB files in `data/mongodb`, all logs in `data/logs`).
-
-Press `Ctrl+C` (or close the console window) to stop everything cleanly.
-
-### Bundle layout
-
-```
-musicserver-<os>-<arch>/
-  musicserver(.exe)        ← launcher (the only thing users run)
-  runtime/                 ← bundled Node.js + mongod
-  app/backend/             ← compiled Fastify server
-  app/ui/                  ← Next.js standalone build
-  data/                    ← created on first run (DB + logs)
-  BUILD-INFO.txt           ← target, versions, and source commit SHAs
-```
-
-See `docs/superpowers/specs/2026-05-15-packaging-design.md` for the full design rationale, including why this is a per-platform launcher + sibling tree rather than a literal single `.exe`.
+Building Tauri apps requires the Rust toolchain and each platform's native
+webview prerequisites — see the packaging README for the full list.
