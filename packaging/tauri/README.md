@@ -135,10 +135,11 @@ manually first.)
 
 ### Backend package
 
-- Starts `mongod` with `--dbpath <app-data>/mongodb` on `127.0.0.1:27017`.
-- Starts the backend (`node index.js` from its `dist/`) with
-  `MONGO_URI=mongodb://127.0.0.1:27017`; the backend listens on `0.0.0.0:3000`
-  (HTTP or HTTPS depending on the saved settings).
+- Starts `mongod` with `--dbpath <app-data>/mongodb` on `127.0.0.1:<mongoPort>`
+  (default `27017`).
+- Starts the backend (`node index.js` from its `dist/`) with `PORT=<backendPort>`
+  and `MONGO_URI=mongodb://127.0.0.1:<mongoPort>`; the backend listens on
+  `0.0.0.0:<backendPort>` (default `3000`, HTTP or HTTPS per the saved settings).
 - No main window on launch — a tray icon provides **Show status**,
   **Settings…**, **Open data folder**, and **Quit**. Closing a window hides it;
   the services keep running until you quit from the tray.
@@ -168,6 +169,10 @@ Both packages expose configuration that **persists across reboots** as a
 
 ### Backend — Settings (tray → **Settings…**)
 
+- **Backend API port** (default `3000`) and **MongoDB port** (default `27017`).
+  Changing the backend port restarts only the backend; changing the MongoDB port
+  also restarts MongoDB (the backend's `MONGO_URI` follows). If you change the
+  backend port, update the frontend package's backend URL to match.
 - **Serve the API over HTTPS** (on/off).
 - **Certificate** and **private key** paths (PEM). Leave both empty to
   auto-generate and persist a self-signed certificate under

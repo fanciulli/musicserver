@@ -31,11 +31,35 @@ impl Default for HttpsSettings {
     }
 }
 
-#[derive(Clone, Default, Serialize, Deserialize)]
+fn default_backend_port() -> u16 {
+    3000
+}
+
+fn default_mongo_port() -> u16 {
+    27017
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
+    /// TCP port the backend (Fastify) API listens on.
+    #[serde(default = "default_backend_port")]
+    pub backend_port: u16,
+    /// TCP port the bundled MongoDB listens on (loopback).
+    #[serde(default = "default_mongo_port")]
+    pub mongo_port: u16,
     #[serde(default)]
     pub https: HttpsSettings,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            backend_port: default_backend_port(),
+            mongo_port: default_mongo_port(),
+            https: HttpsSettings::default(),
+        }
+    }
 }
 
 fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {

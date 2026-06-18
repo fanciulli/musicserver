@@ -99,14 +99,21 @@ app(s) and target it:
    window starts hidden.
 2. On a background thread:
    - `create_dir_all(<app-data>/mongodb)` and `<app-data>/logs`.
-   - Spawn `mongod` sidecar: `--dbpath <app-data>/mongodb --port 27017
+   - Spawn `mongod` sidecar: `--dbpath <app-data>/mongodb --port <mongoPort>
      --bind_ip 127.0.0.1 --logpath <app-data>/logs/mongod.log --logappend`.
-   - Wait for TCP `127.0.0.1:27017` (≤30 s).
+   - Wait for TCP `127.0.0.1:<mongoPort>` (≤30 s).
    - Spawn the backend `node` sidecar with `cwd = resources/backend/dist`,
-     `args = ["index.js"]`, `env MONGO_URI=mongodb://127.0.0.1:27017`. The backend
-     listens on `0.0.0.0:3000`.
-   - Wait for TCP `127.0.0.1:3000` (≤60 s).
+     `args = ["index.js"]`, `env PORT=<backendPort>,
+     MONGO_URI=mongodb://127.0.0.1:<mongoPort>`. The backend listens on
+     `0.0.0.0:<backendPort>`.
+   - Wait for TCP `127.0.0.1:<backendPort>` (≤60 s).
    - Emit `status-changed` events; the status page renders them.
+
+   `<backendPort>` (default 3000) and `<mongoPort>` (default 27017) come from the
+   saved settings. Making the backend honor its port required a one-line change
+   in `musicserver-backend` (`musicServer.ts`) to read `PORT` from the
+   environment (defaulting to 3000); MongoDB's port is fully controlled by the
+   supervisor's `--port` / `MONGO_URI`.
 3. Closing the window hides it (`prevent_close`); services keep running.
 4. Tray **Quit** kills children (backend → mongod) then exits. `RunEvent::Exit`
    also kills children as a safety net.
@@ -133,10 +140,12 @@ directory (`app_config_dir`), so it survives reboots. Certificates are stored
 (and, when self-signed, auto-generated) under `app_data_dir/certs/`, which is
 writable and persistent (the app bundle itself is read-only).
 
-- **Backend** settings (system tray → *Settings…*): HTTPS on/off + optional
-  cert/key paths. Applied by restarting only the backend sidecar with
-  `HTTPS_ENABLED` / `TLS_CERT_PATH` / `TLS_KEY_PATH` (the Fastify backend already
-  honors these). MongoDB is left running.
+- **Backend** settings (system tray → *Settings…*): backend API port, MongoDB
+  port, HTTPS on/off + optional cert/key paths. HTTPS / backend-port changes
+  restart only the backend sidecar (`PORT` / `HTTPS_ENABLED` / `TLS_CERT_PATH` /
+  `TLS_KEY_PATH`); a MongoDB-port change restarts both MongoDB and the backend
+  (its `MONGO_URI` follows). The supervisor waits for the affected port to free
+  up before re-spawning.
 - **Frontend** settings (app menu → *Settings…*): backend base URL (http/https)
   + UI HTTPS on/off with optional cert/key paths. Applied by restarting only the
   UI sidecar and re-navigating the window.
@@ -156,9 +165,12 @@ for browser access from another machine.
 
 | Service   | Bind            | Package  |
 | --------- | --------------- | -------- |
-| MongoDB   | `127.0.0.1:27017` | backend  |
-| Backend   | `0.0.0.0:3000`    | backend  |
+| MongoDB   | `127.0.0.1:<mongoPort>` (default 27017) | backend  |
+| Backend   | `0.0.0.0:<backendPort>` (default 3000)  | backend  |
 | Admin UI  | `127.0.0.1:3001`  | frontend |
+
+The backend and MongoDB ports are configurable from the backend package's
+settings (see §4.4).
 
 The backend API binds all interfaces so the frontend package can reach it from
 another machine. MongoDB and the UI server stay on loopback.

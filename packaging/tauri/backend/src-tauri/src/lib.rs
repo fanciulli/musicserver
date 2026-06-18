@@ -24,16 +24,30 @@ use tauri_plugin_shell::ShellExt;
 use settings::Settings;
 
 const HOST: &str = "127.0.0.1";
-const MONGO_PORT: u16 = 27017;
-const BACKEND_PORT: u16 = 3000;
 
 /// Live status of the supervised services, surfaced to the status window.
-#[derive(Default, Clone, Serialize)]
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct Status {
     mongo: bool,
     backend: bool,
     https: bool,
+    backend_port: u16,
+    mongo_port: u16,
     message: String,
+}
+
+impl Default for Status {
+    fn default() -> Self {
+        Self {
+            mongo: false,
+            backend: false,
+            https: false,
+            backend_port: 3000,
+            mongo_port: 27017,
+            message: String::new(),
+        }
+    }
 }
 
 /// A supervised child process tagged with a stable name.
@@ -64,14 +78,23 @@ fn get_settings(state: tauri::State<'_, AppState>) -> Settings {
 
 #[tauri::command]
 fn apply_settings(app: AppHandle, new_settings: Settings) -> Result<(), String> {
+    let old_mongo_port = app.state::<AppState>().settings.lock().unwrap().mongo_port;
     settings::save(&app, &new_settings)?;
+    let mongo_changed = new_settings.mongo_port != old_mongo_port;
     *app.state::<AppState>().settings.lock().unwrap() = new_settings;
 
-    // Restart only the backend (Mongo is unaffected) on a background thread so
-    // the command returns immediately; the UI tracks progress via status events.
+    // Apply on a background thread so the command returns immediately; the UI
+    // tracks progress via status events. Changing the Mongo port requires
+    // restarting Mongo (and the backend, since MONGO_URI changes); otherwise we
+    // only restart the backend.
     let handle = app.clone();
     thread::spawn(move || {
-        if let Err(e) = restart_backend(&handle) {
+        let result = if mongo_changed {
+            restart_all(&handle)
+        } else {
+            restart_backend(&handle)
+        };
+        if let Err(e) = result {
             set_message(&handle, &format!("Restart failed: {e}"));
             eprintln!("[backend-launcher] restart failed: {e}");
         }
@@ -93,7 +116,13 @@ pub fn run() {
         .setup(|app| {
             // Load persisted settings into state before anything reads them.
             let loaded = settings::load(app.handle());
-            *app.state::<AppState>().settings.lock().unwrap() = loaded;
+            {
+                let state = app.state::<AppState>();
+                let mut status = state.status.lock().unwrap();
+                status.backend_port = loaded.backend_port;
+                status.mongo_port = loaded.mongo_port;
+                *state.settings.lock().unwrap() = loaded;
+            }
 
             build_tray(app.handle())?;
 
@@ -128,6 +157,24 @@ pub fn run() {
 // ── service supervision ──────────────────────────────────────────────────────
 
 fn start_services(app: &AppHandle) -> Result<(), String> {
+    let mongo_port = spawn_mongo(app)?;
+    if !wait_for_port(mongo_port, Duration::from_secs(30)) {
+        return Err("timed out waiting for MongoDB".into());
+    }
+    mark_mongo_up(app);
+
+    let backend_port = spawn_backend(app)?;
+    if !wait_for_port(backend_port, Duration::from_secs(60)) {
+        return Err("timed out waiting for backend".into());
+    }
+    mark_backend_up(app);
+    Ok(())
+}
+
+/// Spawn MongoDB on the configured port. Returns the port it was started on.
+fn spawn_mongo(app: &AppHandle) -> Result<u16, String> {
+    let mongo_port = app.state::<AppState>().settings.lock().unwrap().mongo_port;
+
     let data_dir = app
         .path()
         .app_data_dir()
@@ -137,7 +184,6 @@ fn start_services(app: &AppHandle) -> Result<(), String> {
     std::fs::create_dir_all(&mongo_data).map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&logs).map_err(|e| e.to_string())?;
 
-    // 1. MongoDB
     set_message(app, "Starting MongoDB…");
     let mongo_log = logs.join("mongod.log");
     let (rx, child) = app
@@ -148,7 +194,7 @@ fn start_services(app: &AppHandle) -> Result<(), String> {
             String::from("--dbpath"),
             path_str(&mongo_data),
             String::from("--port"),
-            MONGO_PORT.to_string(),
+            mongo_port.to_string(),
             String::from("--bind_ip"),
             String::from(HOST),
             String::from("--logpath"),
@@ -159,26 +205,17 @@ fn start_services(app: &AppHandle) -> Result<(), String> {
         .map_err(|e| format!("failed to spawn mongod: {e}"))?;
     drain_output(app, "mongod", rx);
     push_child(app, "mongod", child);
-
-    if !wait_for_port(MONGO_PORT, Duration::from_secs(30)) {
-        return Err("timed out waiting for MongoDB".into());
-    }
-    mark_mongo_up(app);
-
-    // 2. Backend
-    spawn_backend(app)?;
-    if !wait_for_port(BACKEND_PORT, Duration::from_secs(60)) {
-        return Err("timed out waiting for backend".into());
-    }
-    mark_backend_up(app);
-    Ok(())
+    Ok(mongo_port)
 }
 
-/// Spawn the backend Node process using the current settings (HTTPS config).
-fn spawn_backend(app: &AppHandle) -> Result<(), String> {
+/// Spawn the backend Node process using the current settings (ports + HTTPS).
+/// Returns the backend port it was started on.
+fn spawn_backend(app: &AppHandle) -> Result<u16, String> {
     let current = app.state::<AppState>().settings.lock().unwrap().clone();
     let (cert, key) = settings::effective_cert_paths(app, &current)?;
     let https = current.https.enabled;
+    let backend_port = current.backend_port;
+    let mongo_port = current.mongo_port;
 
     // The backend resolves runtime paths relative to its CWD, so we run it from
     // inside its own `dist/` directory (mirrors `cd dist; node index.js`).
@@ -195,7 +232,8 @@ fn spawn_backend(app: &AppHandle) -> Result<(), String> {
         .sidecar("binaries/node")
         .map_err(|e| e.to_string())?
         .current_dir(backend_dist)
-        .env("MONGO_URI", format!("mongodb://{HOST}:{MONGO_PORT}"))
+        .env("PORT", backend_port.to_string())
+        .env("MONGO_URI", format!("mongodb://{HOST}:{mongo_port}"))
         .env("HTTPS_ENABLED", if https { "true" } else { "false" })
         .env("TLS_CERT_PATH", path_str(&cert))
         .env("TLS_KEY_PATH", path_str(&key))
@@ -204,7 +242,7 @@ fn spawn_backend(app: &AppHandle) -> Result<(), String> {
         .map_err(|e| format!("failed to spawn backend: {e}"))?;
     drain_output(app, "backend", rx);
     push_child(app, "backend", child);
-    Ok(())
+    Ok(backend_port)
 }
 
 /// Stop and re-launch just the backend to apply new settings.
@@ -213,11 +251,45 @@ fn restart_backend(app: &AppHandle) -> Result<(), String> {
     update_status(app, |s| s.backend = false);
     kill_named(app, "backend");
 
-    if !wait_for_port_free(BACKEND_PORT, Duration::from_secs(15)) {
-        return Err(format!("port {BACKEND_PORT} did not free up"));
+    let backend_port = app.state::<AppState>().settings.lock().unwrap().backend_port;
+    if !wait_for_port_free(backend_port, Duration::from_secs(15)) {
+        return Err(format!("port {backend_port} did not free up"));
     }
     spawn_backend(app)?;
-    if !wait_for_port(BACKEND_PORT, Duration::from_secs(60)) {
+    if !wait_for_port(backend_port, Duration::from_secs(60)) {
+        return Err("timed out waiting for backend to restart".into());
+    }
+    mark_backend_up(app);
+    Ok(())
+}
+
+/// Stop and re-launch both MongoDB and the backend (used when the Mongo port
+/// changes, since the backend's MONGO_URI then changes too).
+fn restart_all(app: &AppHandle) -> Result<(), String> {
+    set_message(app, "Applying settings — restarting services…");
+    update_status(app, |s| {
+        s.mongo = false;
+        s.backend = false;
+    });
+    kill_named(app, "backend");
+    kill_named(app, "mongod");
+
+    let (backend_port, mongo_port) = {
+        let state = app.state::<AppState>();
+        let s = state.settings.lock().unwrap();
+        (s.backend_port, s.mongo_port)
+    };
+    wait_for_port_free(mongo_port, Duration::from_secs(15));
+    wait_for_port_free(backend_port, Duration::from_secs(15));
+
+    spawn_mongo(app)?;
+    if !wait_for_port(mongo_port, Duration::from_secs(30)) {
+        return Err("timed out waiting for MongoDB to restart".into());
+    }
+    mark_mongo_up(app);
+
+    spawn_backend(app)?;
+    if !wait_for_port(backend_port, Duration::from_secs(60)) {
         return Err("timed out waiting for backend to restart".into());
     }
     mark_backend_up(app);
@@ -328,19 +400,26 @@ fn set_message(app: &AppHandle, msg: &str) {
 }
 
 fn mark_mongo_up(app: &AppHandle) {
+    let mongo_port = app.state::<AppState>().settings.lock().unwrap().mongo_port;
     update_status(app, |s| {
         s.mongo = true;
-        s.message = "MongoDB ready".into();
+        s.mongo_port = mongo_port;
+        s.message = format!("MongoDB ready on {HOST}:{mongo_port}");
     });
 }
 
 fn mark_backend_up(app: &AppHandle) {
-    let https = app.state::<AppState>().settings.lock().unwrap().https.enabled;
+    let (https, backend_port) = {
+        let state = app.state::<AppState>();
+        let s = state.settings.lock().unwrap();
+        (s.https.enabled, s.backend_port)
+    };
     let scheme = if https { "https" } else { "http" };
     update_status(app, |s| {
         s.backend = true;
         s.https = https;
-        s.message = format!("Backend API ready on {scheme}://{HOST}:{BACKEND_PORT}");
+        s.backend_port = backend_port;
+        s.message = format!("Backend API ready on {scheme}://{HOST}:{backend_port}");
     });
 }
 

@@ -33,7 +33,7 @@
     <div class="row">
       <span id="mongo-dot" class="dot"></span>
       <span class="name">MongoDB</span>
-      <span class="detail">127.0.0.1:27017</span>
+      <span id="mongo-detail" class="detail">127.0.0.1:27017</span>
     </div>
     <div class="row">
       <span id="backend-dot" class="dot"></span>
@@ -50,8 +50,10 @@
         if (!status) return;
         document.getElementById("mongo-dot").classList.toggle("up", !!status.mongo);
         document.getElementById("backend-dot").classList.toggle("up", !!status.backend);
+        document.getElementById("mongo-detail").textContent =
+          "127.0.0.1:" + (status.mongoPort || 27017);
         document.getElementById("backend-detail").textContent =
-          (status.https ? "https" : "http") + "://localhost:3000";
+          (status.https ? "https" : "http") + "://localhost:" + (status.backendPort || 3000);
         if (status.message) document.getElementById("msg").textContent = status.message;
       }
 

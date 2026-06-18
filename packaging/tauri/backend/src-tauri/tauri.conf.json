@@ -23,7 +23,7 @@
         "url": "settings.html",
         "title": "Backend Settings",
         "width": 560,
-        "height": 460,
+        "height": 600,
         "resizable": true,
         "visible": false
       }
