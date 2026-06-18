@@ -1,0 +1,12 @@
+<svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Music Server backend (service) icon: inverted tile variant of the
+       admin-ui logo mark — white equalizer bars on a brand-purple square. -->
+  <rect x="2" y="2" width="44" height="44" rx="10" fill="#5750F1"/>
+  <g transform="translate(8,9)">
+    <rect x="0" y="11" width="4" height="8" rx="2" fill="#FFFFFF"/>
+    <rect x="7" y="5" width="4" height="20" rx="2" fill="#FFFFFF"/>
+    <rect x="14" y="1" width="4" height="28" rx="2" fill="#FFFFFF"/>
+    <rect x="21" y="5" width="4" height="20" rx="2" fill="#FFFFFF"/>
+    <rect x="28" y="11" width="4" height="8" rx="2" fill="#FFFFFF"/>
+  </g>
+</svg>
