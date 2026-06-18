@@ -148,7 +148,7 @@ fn spawn_ui(app: &AppHandle) -> Result<(), String> {
 
     let (rx, child) = app
         .shell()
-        .sidecar("binaries/node")
+        .sidecar("node")
         .map_err(|e| e.to_string())?
         .current_dir(ui_dir)
         .env("PORT", UI_PORT.to_string())

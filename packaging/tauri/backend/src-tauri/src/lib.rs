@@ -188,7 +188,7 @@ fn spawn_mongo(app: &AppHandle) -> Result<u16, String> {
     let mongo_log = logs.join("mongod.log");
     let (rx, child) = app
         .shell()
-        .sidecar("binaries/mongod")
+        .sidecar("mongod")
         .map_err(|e| e.to_string())?
         .args([
             String::from("--dbpath"),
@@ -229,7 +229,7 @@ fn spawn_backend(app: &AppHandle) -> Result<u16, String> {
 
     let (rx, child) = app
         .shell()
-        .sidecar("binaries/node")
+        .sidecar("node")
         .map_err(|e| e.to_string())?
         .current_dir(backend_dist)
         .env("PORT", backend_port.to_string())
