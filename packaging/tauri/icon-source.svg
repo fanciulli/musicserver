@@ -1,0 +1,11 @@
+<svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Music Server mark: the 5-bar equalizer glyph from the admin-ui logo
+       (src/assets/logos/main.svg), centered as a square app icon. -->
+  <g transform="translate(8,9)">
+    <rect x="0" y="11" width="4" height="8" rx="2" fill="#5750F1"/>
+    <rect x="7" y="5" width="4" height="20" rx="2" fill="#5750F1"/>
+    <rect x="14" y="1" width="4" height="28" rx="2" fill="#5750F1"/>
+    <rect x="21" y="5" width="4" height="20" rx="2" fill="#5750F1"/>
+    <rect x="28" y="11" width="4" height="8" rx="2" fill="#5750F1"/>
+  </g>
+</svg>
