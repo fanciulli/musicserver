@@ -10,7 +10,7 @@
   "repos": {
     "backend": {
       "url": "https://github.com/fanciulli/musicserver-backend.git",
-      "ref": "main"
+      "ref": "claude/clever-heisenberg-jacc2b"
     },
     "ui": {
       "url": "https://github.com/fanciulli/musicserver-admin-ui.git",

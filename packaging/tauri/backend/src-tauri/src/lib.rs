@@ -10,7 +10,8 @@ mod settings;
 
 use std::net::{SocketAddr, TcpStream};
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -157,22 +158,18 @@ pub fn run() {
 // ── service supervision ──────────────────────────────────────────────────────
 
 fn start_services(app: &AppHandle) -> Result<(), String> {
-    let mongo_port = spawn_mongo(app)?;
-    if !wait_for_port(mongo_port, Duration::from_secs(30)) {
-        return Err("timed out waiting for MongoDB".into());
-    }
+    let (mongo_port, mongo_exited) = spawn_mongo(app)?;
+    wait_for_service(mongo_port, &mongo_exited, Duration::from_secs(30), "MongoDB")?;
     mark_mongo_up(app);
 
-    let backend_port = spawn_backend(app)?;
-    if !wait_for_port(backend_port, Duration::from_secs(60)) {
-        return Err("timed out waiting for backend".into());
-    }
+    let (backend_port, backend_exited) = spawn_backend(app)?;
+    wait_for_service(backend_port, &backend_exited, Duration::from_secs(60), "backend")?;
     mark_backend_up(app);
     Ok(())
 }
 
-/// Spawn MongoDB on the configured port. Returns the port it was started on.
-fn spawn_mongo(app: &AppHandle) -> Result<u16, String> {
+/// Spawn MongoDB on the configured port. Returns the port and an "exited" flag.
+fn spawn_mongo(app: &AppHandle) -> Result<(u16, Arc<AtomicBool>), String> {
     let mongo_port = app.state::<AppState>().settings.lock().unwrap().mongo_port;
 
     let data_dir = app
@@ -186,7 +183,7 @@ fn spawn_mongo(app: &AppHandle) -> Result<u16, String> {
 
     set_message(app, "Starting MongoDB…");
     let mongo_log = logs.join("mongod.log");
-    let (rx, child) = app
+    let command = app
         .shell()
         .sidecar("mongod")
         .map_err(|e| e.to_string())?
@@ -200,17 +197,14 @@ fn spawn_mongo(app: &AppHandle) -> Result<u16, String> {
             String::from("--logpath"),
             path_str(&mongo_log),
             String::from("--logappend"),
-        ])
-        .spawn()
-        .map_err(|e| format!("failed to spawn mongod: {e}"))?;
-    drain_output(app, "mongod", rx);
-    push_child(app, "mongod", child);
-    Ok(mongo_port)
+        ]);
+    let exited = spawn_logged(app, "mongod", command)?;
+    Ok((mongo_port, exited))
 }
 
 /// Spawn the backend Node process using the current settings (ports + HTTPS).
-/// Returns the backend port it was started on.
-fn spawn_backend(app: &AppHandle) -> Result<u16, String> {
+/// Returns the backend port and an "exited" flag.
+fn spawn_backend(app: &AppHandle) -> Result<(u16, Arc<AtomicBool>), String> {
     let current = app.state::<AppState>().settings.lock().unwrap().clone();
     let (cert, key) = settings::effective_cert_paths(app, &current)?;
     let https = current.https.enabled;
@@ -227,7 +221,7 @@ fn spawn_backend(app: &AppHandle) -> Result<u16, String> {
         .join("backend")
         .join("dist");
 
-    let (rx, child) = app
+    let command = app
         .shell()
         .sidecar("node")
         .map_err(|e| e.to_string())?
@@ -237,12 +231,9 @@ fn spawn_backend(app: &AppHandle) -> Result<u16, String> {
         .env("HTTPS_ENABLED", if https { "true" } else { "false" })
         .env("TLS_CERT_PATH", path_str(&cert))
         .env("TLS_KEY_PATH", path_str(&key))
-        .args(["index.js"])
-        .spawn()
-        .map_err(|e| format!("failed to spawn backend: {e}"))?;
-    drain_output(app, "backend", rx);
-    push_child(app, "backend", child);
-    Ok(backend_port)
+        .args(["index.js"]);
+    let exited = spawn_logged(app, "backend", command)?;
+    Ok((backend_port, exited))
 }
 
 /// Stop and re-launch just the backend to apply new settings.
@@ -252,13 +243,9 @@ fn restart_backend(app: &AppHandle) -> Result<(), String> {
     kill_named(app, "backend");
 
     let backend_port = app.state::<AppState>().settings.lock().unwrap().backend_port;
-    if !wait_for_port_free(backend_port, Duration::from_secs(15)) {
-        return Err(format!("port {backend_port} did not free up"));
-    }
-    spawn_backend(app)?;
-    if !wait_for_port(backend_port, Duration::from_secs(60)) {
-        return Err("timed out waiting for backend to restart".into());
-    }
+    wait_for_port_free(backend_port, Duration::from_secs(15));
+    let (port, exited) = spawn_backend(app)?;
+    wait_for_service(port, &exited, Duration::from_secs(60), "backend")?;
     mark_backend_up(app);
     Ok(())
 }
@@ -282,31 +269,41 @@ fn restart_all(app: &AppHandle) -> Result<(), String> {
     wait_for_port_free(mongo_port, Duration::from_secs(15));
     wait_for_port_free(backend_port, Duration::from_secs(15));
 
-    spawn_mongo(app)?;
-    if !wait_for_port(mongo_port, Duration::from_secs(30)) {
-        return Err("timed out waiting for MongoDB to restart".into());
-    }
+    let (mongo_port, mongo_exited) = spawn_mongo(app)?;
+    wait_for_service(mongo_port, &mongo_exited, Duration::from_secs(30), "MongoDB")?;
     mark_mongo_up(app);
 
-    spawn_backend(app)?;
-    if !wait_for_port(backend_port, Duration::from_secs(60)) {
-        return Err("timed out waiting for backend to restart".into());
-    }
+    let (port, exited) = spawn_backend(app)?;
+    wait_for_service(port, &exited, Duration::from_secs(60), "backend")?;
     mark_backend_up(app);
     Ok(())
 }
 
 // ── port helpers ─────────────────────────────────────────────────────────────
 
-fn wait_for_port(port: u16, timeout: Duration) -> bool {
+/// Wait until `port` accepts a connection, failing fast if the supervised
+/// process exits first or the timeout elapses.
+fn wait_for_service(
+    port: u16,
+    exited: &Arc<AtomicBool>,
+    timeout: Duration,
+    name: &str,
+) -> Result<(), String> {
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     let deadline = Instant::now() + timeout;
     loop {
         if TcpStream::connect_timeout(&addr, Duration::from_millis(500)).is_ok() {
-            return true;
+            return Ok(());
+        }
+        if exited.load(Ordering::SeqCst) {
+            return Err(format!(
+                "{name} exited before listening on port {port}; see logs/{name}.log (tray → Open data folder)"
+            ));
         }
         if Instant::now() >= deadline {
-            return false;
+            return Err(format!(
+                "timed out waiting for {name} on port {port}; see logs/{name}.log (tray → Open data folder)"
+            ));
         }
         thread::sleep(Duration::from_millis(250));
     }
@@ -326,24 +323,60 @@ fn wait_for_port_free(port: u16, timeout: Duration) -> bool {
     }
 }
 
-/// Forward a sidecar's stdout/stderr lines to the parent's stderr (for logs).
+/// Spawn a sidecar command, streaming its output to `<app-data>/logs/<name>.log`
+/// (and the parent stderr), and returning a flag that is set when it exits.
+fn spawn_logged(
+    app: &AppHandle,
+    name: &'static str,
+    command: tauri_plugin_shell::process::Command,
+) -> Result<Arc<AtomicBool>, String> {
+    let (rx, child) = command
+        .spawn()
+        .map_err(|e| format!("failed to spawn {name}: {e}"))?;
+    let exited = Arc::new(AtomicBool::new(false));
+    drain_output(app, name, rx, exited.clone());
+    push_child(app, name, child);
+    Ok(exited)
+}
+
+/// Forward a sidecar's output to a log file + parent stderr, and flip `exited`
+/// when the process terminates.
 fn drain_output(
     app: &AppHandle,
     name: &'static str,
     mut rx: tauri::async_runtime::Receiver<CommandEvent>,
+    exited: Arc<AtomicBool>,
 ) {
-    let _ = app;
+    let log_path = app
+        .path()
+        .app_data_dir()
+        .ok()
+        .map(|d| d.join("logs").join(format!("{name}.log")));
     tauri::async_runtime::spawn(async move {
         while let Some(event) = rx.recv().await {
-            match event {
+            let line = match event {
                 CommandEvent::Stdout(bytes) | CommandEvent::Stderr(bytes) => {
-                    eprint!("[{name}] {}", String::from_utf8_lossy(&bytes));
+                    String::from_utf8_lossy(&bytes).into_owned()
                 }
-                CommandEvent::Error(err) => eprintln!("[{name}] error: {err}"),
+                CommandEvent::Error(err) => format!("error: {err}\n"),
                 CommandEvent::Terminated(payload) => {
-                    eprintln!("[{name}] terminated: code={:?}", payload.code);
+                    exited.store(true, Ordering::SeqCst);
+                    format!("terminated: code={:?}\n", payload.code)
                 }
-                _ => {}
+                _ => String::new(),
+            };
+            if line.is_empty() {
+                continue;
+            }
+            eprint!("[{name}] {line}");
+            if let Some(ref path) = log_path {
+                if let Some(parent) = path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+                    use std::io::Write;
+                    let _ = f.write_all(line.as_bytes());
+                }
             }
         }
     });

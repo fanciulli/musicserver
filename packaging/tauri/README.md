@@ -198,6 +198,31 @@ Saving restarts only the UI sidecar and reloads the window.
 > local-only). Self-signed certs are most useful when the UI/API are reached from
 > another machine's browser.
 
+## Troubleshooting
+
+Each supervised process streams its output to a log file in the app data
+directory (open it from the backend tray → **Open data folder**):
+
+```
+<app-data>/logs/mongod.log
+<app-data>/logs/backend.log
+<app-data>/logs/ui.log
+```
+
+If a service fails to come up, the status message points at the relevant log
+and the supervisor reports whether the process *exited* (crashed — check the
+log) or simply *timed out*. A common cause is a configured port that nothing
+ends up listening on (e.g. the backend port was changed but the admin UI still
+points at the old one).
+
+`<app-data>` is:
+
+| OS      | Path |
+| ------- | ---- |
+| macOS   | `~/Library/Application Support/org.musicserver.backend/` |
+| Windows | `%APPDATA%\org.musicserver.backend\` |
+| Linux   | `~/.local/share/org.musicserver.backend/` |
+
 ## Versions
 
 Runtime versions and the source repo refs are in `versions.json`. Bump them

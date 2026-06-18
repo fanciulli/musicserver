@@ -11,7 +11,8 @@ mod settings;
 
 use std::net::{SocketAddr, TcpStream};
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -127,14 +128,12 @@ pub fn run() {
 // ── UI supervision ───────────────────────────────────────────────────────────
 
 fn start_ui(app: &AppHandle) -> Result<(), String> {
-    spawn_ui(app)?;
-    if !wait_for_port(UI_PORT, Duration::from_secs(60)) {
-        return Err("timed out waiting for the UI server".into());
-    }
+    let exited = spawn_ui(app)?;
+    wait_for_service(UI_PORT, &exited, Duration::from_secs(60), "ui")?;
     navigate_to_ui(app)
 }
 
-fn spawn_ui(app: &AppHandle) -> Result<(), String> {
+fn spawn_ui(app: &AppHandle) -> Result<Arc<AtomicBool>, String> {
     let current = app.state::<AppState>().settings.lock().unwrap().clone();
     let (cert, key) = settings::effective_cert_paths(app, &current)?;
     let https = current.https.enabled;
@@ -146,7 +145,7 @@ fn spawn_ui(app: &AppHandle) -> Result<(), String> {
         .join("resources")
         .join("ui");
 
-    let (rx, child) = app
+    let command = app
         .shell()
         .sidecar("node")
         .map_err(|e| e.to_string())?
@@ -157,27 +156,15 @@ fn spawn_ui(app: &AppHandle) -> Result<(), String> {
         .env("HTTPS_ENABLED", if https { "true" } else { "false" })
         .env("TLS_CERT_PATH", path_str(&cert))
         .env("TLS_KEY_PATH", path_str(&key))
-        .args(["server.js"])
-        .spawn()
-        .map_err(|e| format!("failed to spawn UI server: {e}"))?;
-    drain_output(app, "ui", rx);
-    app.state::<AppState>()
-        .children
-        .lock()
-        .unwrap()
-        .push(Managed { name: "ui", child });
-    Ok(())
+        .args(["server.js"]);
+    spawn_logged(app, "ui", command)
 }
 
 fn restart_ui(app: &AppHandle) -> Result<(), String> {
     kill_named(app, "ui");
-    if !wait_for_port_free(UI_PORT, Duration::from_secs(15)) {
-        return Err(format!("port {UI_PORT} did not free up"));
-    }
-    spawn_ui(app)?;
-    if !wait_for_port(UI_PORT, Duration::from_secs(60)) {
-        return Err("timed out waiting for UI server to restart".into());
-    }
+    wait_for_port_free(UI_PORT, Duration::from_secs(15));
+    let exited = spawn_ui(app)?;
+    wait_for_service(UI_PORT, &exited, Duration::from_secs(60), "ui")?;
     navigate_to_ui(app)
 }
 
@@ -195,15 +182,29 @@ fn navigate_to_ui(app: &AppHandle) -> Result<(), String> {
 
 // ── port helpers ─────────────────────────────────────────────────────────────
 
-fn wait_for_port(port: u16, timeout: Duration) -> bool {
+/// Wait until `port` accepts a connection, failing fast if the supervised
+/// process exits first or the timeout elapses.
+fn wait_for_service(
+    port: u16,
+    exited: &Arc<AtomicBool>,
+    timeout: Duration,
+    name: &str,
+) -> Result<(), String> {
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     let deadline = Instant::now() + timeout;
     loop {
         if TcpStream::connect_timeout(&addr, Duration::from_millis(500)).is_ok() {
-            return true;
+            return Ok(());
+        }
+        if exited.load(Ordering::SeqCst) {
+            return Err(format!(
+                "{name} exited before listening on port {port}; see logs/{name}.log"
+            ));
         }
         if Instant::now() >= deadline {
-            return false;
+            return Err(format!(
+                "timed out waiting for {name} on port {port}; see logs/{name}.log"
+            ));
         }
         thread::sleep(Duration::from_millis(250));
     }
@@ -223,23 +224,64 @@ fn wait_for_port_free(port: u16, timeout: Duration) -> bool {
     }
 }
 
+/// Spawn a sidecar command, streaming its output to `<app-data>/logs/<name>.log`
+/// (and the parent stderr), and returning a flag that is set when it exits.
+fn spawn_logged(
+    app: &AppHandle,
+    name: &'static str,
+    command: tauri_plugin_shell::process::Command,
+) -> Result<Arc<AtomicBool>, String> {
+    let (rx, child) = command
+        .spawn()
+        .map_err(|e| format!("failed to spawn {name}: {e}"))?;
+    let exited = Arc::new(AtomicBool::new(false));
+    drain_output(app, name, rx, exited.clone());
+    app.state::<AppState>()
+        .children
+        .lock()
+        .unwrap()
+        .push(Managed { name, child });
+    Ok(exited)
+}
+
+/// Forward a sidecar's output to a log file + parent stderr, and flip `exited`
+/// when the process terminates.
 fn drain_output(
     app: &AppHandle,
     name: &'static str,
     mut rx: tauri::async_runtime::Receiver<CommandEvent>,
+    exited: Arc<AtomicBool>,
 ) {
-    let _ = app;
+    let log_path = app
+        .path()
+        .app_data_dir()
+        .ok()
+        .map(|d| d.join("logs").join(format!("{name}.log")));
     tauri::async_runtime::spawn(async move {
         while let Some(event) = rx.recv().await {
-            match event {
+            let line = match event {
                 CommandEvent::Stdout(bytes) | CommandEvent::Stderr(bytes) => {
-                    eprint!("[{name}] {}", String::from_utf8_lossy(&bytes));
+                    String::from_utf8_lossy(&bytes).into_owned()
                 }
-                CommandEvent::Error(err) => eprintln!("[{name}] error: {err}"),
+                CommandEvent::Error(err) => format!("error: {err}\n"),
                 CommandEvent::Terminated(payload) => {
-                    eprintln!("[{name}] terminated: code={:?}", payload.code);
+                    exited.store(true, Ordering::SeqCst);
+                    format!("terminated: code={:?}\n", payload.code)
                 }
-                _ => {}
+                _ => String::new(),
+            };
+            if line.is_empty() {
+                continue;
+            }
+            eprint!("[{name}] {line}");
+            if let Some(ref path) = log_path {
+                if let Some(parent) = path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+                    use std::io::Write;
+                    let _ = f.write_all(line.as_bytes());
+                }
             }
         }
     });
