@@ -43,7 +43,7 @@ impl Default for Status {
         Self {
             mongo: false,
             backend: false,
-            https: false,
+            https: true,
             backend_port: 3000,
             mongo_port: 27017,
             message: String::new(),
@@ -120,6 +120,7 @@ pub fn run() {
             {
                 let state = app.state::<AppState>();
                 let mut status = state.status.lock().unwrap();
+                status.https = loaded.https.enabled;
                 status.backend_port = loaded.backend_port;
                 status.mongo_port = loaded.mongo_port;
                 *state.settings.lock().unwrap() = loaded;

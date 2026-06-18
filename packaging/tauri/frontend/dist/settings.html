@@ -40,7 +40,7 @@
     <fieldset>
       <legend>Backend connection</legend>
       <label for="backend-url">Backend API base URL</label>
-      <input type="text" id="backend-url" placeholder="http://localhost:3000" />
+      <input type="text" id="backend-url" placeholder="https://localhost:3000" />
       <div class="hint">
         Use <code>https://…</code> to connect to a backend served over HTTPS. Self-signed
         backend certificates are accepted automatically.
@@ -85,7 +85,7 @@
       async function load() {
         try {
           const s = await tauri.core.invoke("get_settings");
-          $("backend-url").value = (s && s.backendUrl) || "http://localhost:3000";
+          $("backend-url").value = (s && s.backendUrl) || "https://localhost:3000";
           const https = (s && s.https) || {};
           $("https-enabled").checked = !!https.enabled;
           $("cert-path").value = https.certPath || "";
@@ -99,7 +99,7 @@
       async function save() {
         const payload = {
           newSettings: {
-            backendUrl: $("backend-url").value.trim() || "http://localhost:3000",
+            backendUrl: $("backend-url").value.trim() || "https://localhost:3000",
             https: {
               enabled: $("https-enabled").checked,
               certPath: $("cert-path").value.trim(),

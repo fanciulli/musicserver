@@ -173,7 +173,8 @@ Both packages expose configuration that **persists across reboots** as a
   Changing the backend port restarts only the backend; changing the MongoDB port
   also restarts MongoDB (the backend's `MONGO_URI` follows). If you change the
   backend port, update the frontend package's backend URL to match.
-- **Serve the API over HTTPS** (on/off).
+- **Serve the API over HTTPS** — **enabled by default** (a self-signed
+  certificate is auto-generated and persisted on first run).
 - **Certificate** and **private key** paths (PEM). Leave both empty to
   auto-generate and persist a self-signed certificate under
   `<app-data>/certs/`; or point to your own certificate.
@@ -183,9 +184,10 @@ Saving restarts only the backend (MongoDB keeps running) and applies
 
 ### Frontend — Settings (menu → **Settings…**)
 
-- **Backend API base URL** (e.g. `http://localhost:3000` or
-  `https://host:3000`). When it is `https`, the UI server automatically trusts a
-  self-signed backend certificate (handled by `server.ts`).
+- **Backend API base URL** — defaults to `https://localhost:3000` to match the
+  backend package's HTTPS-by-default. When it is `https`, the UI server
+  automatically trusts a self-signed backend certificate (handled by
+  `server.ts`).
 - **Serve the UI over HTTPS** with an optional certificate/key (same
   auto-generate behaviour as the backend).
 

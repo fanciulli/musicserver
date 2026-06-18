@@ -24,7 +24,7 @@ pub struct HttpsSettings {
 impl Default for HttpsSettings {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             cert_path: String::new(),
             key_path: String::new(),
         }

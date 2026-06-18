@@ -140,6 +140,10 @@ directory (`app_config_dir`), so it survives reboots. Certificates are stored
 (and, when self-signed, auto-generated) under `app_data_dir/certs/`, which is
 writable and persistent (the app bundle itself is read-only).
 
+Defaults: the backend serves **HTTPS enabled** (auto-generated self-signed cert)
+on port 3000, with MongoDB on 27017; the frontend's backend URL defaults to
+`https://localhost:3000` to match.
+
 - **Backend** settings (system tray → *Settings…*): backend API port, MongoDB
   port, HTTPS on/off + optional cert/key paths. HTTPS / backend-port changes
   restart only the backend sidecar (`PORT` / `HTTPS_ENABLED` / `TLS_CERT_PATH` /

@@ -32,7 +32,9 @@ impl Default for HttpsSettings {
 }
 
 fn default_backend_url() -> String {
-    "http://localhost:3000".to_string()
+    // The backend package serves HTTPS by default; server.ts trusts a
+    // self-signed backend certificate automatically for https URLs.
+    "https://localhost:3000".to_string()
 }
 
 #[derive(Clone, Serialize, Deserialize)]
