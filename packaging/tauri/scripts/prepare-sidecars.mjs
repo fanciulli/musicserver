@@ -148,9 +148,13 @@ async function syncRepo(name, cfg) {
     log(`cloning ${name} (${cfg.url}@${cfg.ref})`);
     run("git", ["clone", "--depth", "1", "--branch", cfg.ref, cfg.url, dir]);
   } else if (!OFFLINE) {
-    log(`updating ${name}`);
+    log(`updating ${name} -> ${cfg.ref}`);
+    // Fetch the configured ref and hard-reset to it. We reset to FETCH_HEAD
+    // rather than origin/<ref>: the initial clone is single-branch (--depth 1
+    // --branch implies --single-branch), so the remote-tracking ref for a
+    // different ref (e.g. after changing versions.json) does not exist.
     run("git", ["fetch", "--depth", "1", "origin", cfg.ref], { cwd: dir });
-    run("git", ["reset", "--hard", `origin/${cfg.ref}`], { cwd: dir });
+    run("git", ["reset", "--hard", "FETCH_HEAD"], { cwd: dir });
   } else {
     log(`offline: leaving ${name} as-is`);
   }
