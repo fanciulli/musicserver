@@ -150,6 +150,7 @@ fn spawn_ui(app: &AppHandle) -> Result<Arc<AtomicBool>, String> {
         .sidecar("node")
         .map_err(|e| e.to_string())?
         .current_dir(ui_dir)
+        .env("NODE_ENV", "production")
         .env("PORT", UI_PORT.to_string())
         .env("HOSTNAME", HOST)
         .env("MUSICSERVER_API_BASE_URL", current.backend_url.trim())

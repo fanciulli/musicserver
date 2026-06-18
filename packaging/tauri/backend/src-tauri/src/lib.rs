@@ -227,6 +227,7 @@ fn spawn_backend(app: &AppHandle) -> Result<(u16, Arc<AtomicBool>), String> {
         .sidecar("node")
         .map_err(|e| e.to_string())?
         .current_dir(backend_dist)
+        .env("NODE_ENV", "production")
         .env("PORT", backend_port.to_string())
         .env("MONGO_URI", format!("mongodb://{HOST}:{mongo_port}"))
         .env("HTTPS_ENABLED", if https { "true" } else { "false" })
