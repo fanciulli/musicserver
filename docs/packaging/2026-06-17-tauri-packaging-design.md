@@ -31,10 +31,9 @@ component is a static web app that can simply be loaded into a webview:
 
 - The **backend** is a Fastify HTTP server. It needs a Node.js runtime and a
   MongoDB instance. There is no UI to render.
-- The **admin UI** is a Next.js 16 app built with `output: "standalone"`. It has
-  server-side API routes (`src/app/api/.../route.ts`) and a custom Node server
-  (`server.ts` → `server.js`). It must run as a Node process; it is not a static
-  export.
+- The **admin UI** is a Next.js 16 app with server-side API routes
+  (`src/app/api/.../route.ts`) and a custom Node server (`server.ts` →
+  `server.js`). It must run as a Node process; it is not a static export.
 
 Tauri's [sidecar](https://v2.tauri.app/develop/sidecar/) mechanism is the natural
 fit: each app bundles external binaries alongside the main executable. So:
@@ -44,8 +43,9 @@ fit: each app bundles external binaries alongside the main executable. So:
   no UI, the app lives in the **system tray** with a small status window
   (chosen over a fully headless process so end users can see status and quit
   cleanly).
-- The **frontend app** bundles `node` as a sidecar and the Next.js standalone
-  build as resources. Its Rust core starts the UI server on `127.0.0.1:3001` and
+- The **frontend app** bundles `node` as a sidecar and the Next.js production
+  build (`.next`) + prod `node_modules` + the compiled custom `server.js` as
+  resources. Its Rust core starts the UI server on `127.0.0.1:3001` and
   navigates the window to it.
 
 Splitting Node-runtime/app-code into sidecar + resources (rather than one fat
@@ -87,11 +87,13 @@ app(s) and target it:
    `node-x86_64-unknown-linux-gnu`, `mongod-aarch64-apple-darwin`.
 4. Stages the compiled app into `src-tauri/resources/`:
    - backend → `resources/backend/{dist,node_modules,package.json}` (prod deps only)
-   - frontend → `resources/ui/` assembled like the admin-ui Dockerfile runner
-     stage: prod `node_modules`, the Next.js standalone tree, `.next/static` +
-     `public`, and the **custom `server.js`** (compiled from `server.ts`, which
-     adds HTTPS + self-signed cert generation) overwriting the standalone server,
-     plus the compiled `src/lib/tls` helper.
+   - frontend → `resources/ui/`: prod `node_modules`, the **full Next.js
+     production build** (`.next`, excluding `cache`/`standalone`), `public`, the
+     **custom `server.js`** (compiled from `server.ts`, which adds HTTPS +
+     self-signed cert generation), and the compiled `src/lib/tls` helper. This
+     mirrors what `npm start` (`node server.js`) runs — the custom server uses
+     `next({ dev: false })`, which needs the complete `.next` build, not the
+     trimmed `.next/standalone` tree.
 
 ### 4.2 Backend supervisor (`backend/src-tauri/src/lib.rs`)
 

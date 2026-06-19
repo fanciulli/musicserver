@@ -266,21 +266,20 @@ function stageBackend(nodeBin, mongodBin) {
   npmInstall(out, { prod: true, ignoreScripts: true });
 }
 
-// Stage the admin UI to run via its custom `server.ts` (HTTPS-capable), mirroring
-// the admin-ui Dockerfile runner stage:
-//   1. prod node_modules (provides `next`, `selfsigned`, …)
-//   2. overlay the Next.js standalone tree (.next + minimal runtime + server.js)
-//   3. add .next/static and public
-//   4. overwrite server.js with the compiled custom TLS server
-//   5. add the compiled TLS helper (src/lib/tls)
+// Stage the admin UI to run via its custom `server.ts` (HTTPS-capable). The
+// custom server uses `next({ dev: false })`, which requires a COMPLETE `next
+// build` output in `.next` plus the prod node_modules — i.e. exactly what
+// `npm start` (`node server.js`) uses. We therefore stage the full `.next`
+// build (not the trimmed `.next/standalone` tree, which is only valid for
+// Next's own standalone server and lacks the production build markers).
 function stageFrontend(nodeBin) {
   const appDir = join(TAURI_DIR, "frontend");
   placeBinary(nodeBin, appDir, "node");
 
   const uiSrc = join(SRC_DIR, "ui");
-  const standaloneDir = join(uiSrc, ".next", "standalone");
-  if (!existsSync(standaloneDir)) {
-    fail(`Next.js standalone output not found at ${standaloneDir}. Ensure next.config has output: "standalone".`);
+  const nextDir = join(uiSrc, ".next");
+  if (!existsSync(nextDir)) {
+    fail(`Next.js build output not found at ${nextDir}. Run 'next build' first.`);
   }
   const customServer = join(uiSrc, "server.js");
   if (!existsSync(customServer)) {
@@ -291,26 +290,31 @@ function stageFrontend(nodeBin) {
   const out = join(resDir, "ui");
   ensureDir(out);
 
-  // 1. prod deps
+  // 1. prod deps (provides next, react, selfsigned, …)
   cpSync(join(uiSrc, "package.json"), join(out, "package.json"));
   const lock = join(uiSrc, "package-lock.json");
   if (existsSync(lock)) cpSync(lock, join(out, "package-lock.json"));
   log("ui: installing prod deps into resources");
   npmInstall(out, { prod: true, ignoreScripts: true });
 
-  // 2. standalone tree overlaid on top of prod deps
-  cpSync(standaloneDir, out, { recursive: true });
+  // 2. full Next.js production build (.next), excluding the build cache and the
+  //    standalone subtree (neither is needed to run `next({ dev: false })`).
+  log("ui: copying .next production build");
+  cpSync(nextDir, join(out, ".next"), {
+    recursive: true,
+    filter: (src) => {
+      const rel = src.slice(nextDir.length).replace(/^[\\/]/, "");
+      const top = rel.split(/[\\/]/)[0];
+      return top !== "cache" && top !== "standalone";
+    },
+  });
 
-  // 3. static + public (not copied into standalone by Next.js)
-  const staticSrc = join(uiSrc, ".next", "static");
-  if (existsSync(staticSrc)) cpSync(staticSrc, join(out, ".next", "static"), { recursive: true });
+  // 3. public assets
   const publicSrc = join(uiSrc, "public");
   if (existsSync(publicSrc)) cpSync(publicSrc, join(out, "public"), { recursive: true });
 
-  // 4. custom TLS server overwrites the standalone server.js
+  // 4. custom TLS server (compiled from server.ts) + its TLS helper
   cpSync(customServer, join(out, "server.js"));
-
-  // 5. compiled TLS helper required by the custom server
   const tlsSrc = join(uiSrc, "src", "lib", "tls");
   if (existsSync(tlsSrc)) cpSync(tlsSrc, join(out, "src", "lib", "tls"), { recursive: true });
 }
