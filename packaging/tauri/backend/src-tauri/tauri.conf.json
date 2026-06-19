@@ -49,9 +49,9 @@
       "binaries/node",
       "binaries/mongod"
     ],
-    "resources": [
-      "resources/**/*"
-    ]
+    "resources": {
+      "resources": "resources"
+    }
   },
   "plugins": {}
 }

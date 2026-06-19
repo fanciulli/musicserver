@@ -49,9 +49,9 @@
     "externalBin": [
       "binaries/node"
     ],
-    "resources": [
-      "resources/**/*"
-    ]
+    "resources": {
+      "resources": "resources"
+    }
   },
   "plugins": {}
 }

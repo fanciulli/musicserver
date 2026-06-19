@@ -222,6 +222,8 @@ fn spawn_backend(app: &AppHandle) -> Result<(u16, Arc<AtomicBool>), String> {
         .join("backend")
         .join("dist");
 
+    preflight_check(app, "backend", &backend_dist, "index.js")?;
+
     let command = app
         .shell()
         .sidecar("node")
@@ -339,6 +341,45 @@ fn spawn_logged(
     drain_output(app, name, rx, exited.clone());
     push_child(app, name, child);
     Ok(exited)
+}
+
+/// Append a line to `<app-data>/logs/<name>.log` (and parent stderr).
+fn log_line(app: &AppHandle, name: &str, msg: &str) {
+    eprintln!("[{name}] {msg}");
+    if let Ok(dir) = app.path().app_data_dir() {
+        let path = dir.join("logs").join(format!("{name}.log"));
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+            use std::io::Write;
+            let _ = writeln!(f, "{msg}");
+        }
+    }
+}
+
+/// Verify the bundled resource entry exists before spawning, logging the resolved
+/// path and (on failure) what the directory actually contains.
+fn preflight_check(app: &AppHandle, name: &'static str, dir: &PathBuf, entry: &str) -> Result<(), String> {
+    log_line(app, name, &format!("resource dir: {}", dir.display()));
+    let target = dir.join(entry);
+    if target.exists() {
+        return Ok(());
+    }
+    let listing = match std::fs::read_dir(dir) {
+        Ok(rd) => rd
+            .filter_map(|e| e.ok().map(|e| e.file_name().to_string_lossy().into_owned()))
+            .collect::<Vec<_>>()
+            .join(", "),
+        Err(e) => format!("<cannot read dir: {e}>"),
+    };
+    let msg = format!(
+        "FATAL: bundled resource '{entry}' not found at {} — directory contains: [{listing}]. \
+         The app was likely built without its resources; rebuild with `npm run build`.",
+        target.display()
+    );
+    log_line(app, name, &msg);
+    Err(msg)
 }
 
 /// Forward a sidecar's output to a log file + parent stderr, and flip `exited`
