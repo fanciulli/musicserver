@@ -51,19 +51,20 @@
       <legend>UI HTTPS</legend>
       <div class="toggle">
         <input type="checkbox" id="https-enabled" />
-        <label for="https-enabled" style="margin: 0">Serve the UI over HTTPS (port 3001)</label>
+        <label for="https-enabled" style="margin: 0">Serve the UI over HTTPS</label>
       </div>
 
       <label for="cert-path">Certificate file (PEM)</label>
-      <input type="text" id="cert-path" placeholder="Leave empty to auto-generate a self-signed certificate" />
+      <input type="text" id="cert-path" placeholder="Required when HTTPS is enabled — absolute path to a PEM certificate" />
 
       <label for="key-path">Private key file (PEM)</label>
-      <input type="text" id="key-path" placeholder="Leave empty to auto-generate" />
+      <input type="text" id="key-path" placeholder="Required when HTTPS is enabled — absolute path to a PEM key" />
 
       <div class="hint">
-        Leave both empty to auto-generate and persist a self-signed certificate in the
-        app data folder. For the desktop window, a certificate trusted by your OS avoids
-        security warnings.
+        <strong>If you enable HTTPS you must provide both a certificate and a private key.</strong>
+        The desktop window's embedded webview rejects self-signed certificates, so use a
+        certificate trusted by your operating system. Leave HTTPS off to serve the UI over
+        local HTTP (loopback only).
       </div>
     </fieldset>
 
@@ -97,20 +98,31 @@
       }
 
       async function save() {
+        const httpsEnabled = $("https-enabled").checked;
+        const certPath = $("cert-path").value.trim();
+        const keyPath = $("key-path").value.trim();
+
+        // When HTTPS is enabled, both certificate and key are mandatory: the
+        // desktop webview cannot use a self-signed (auto-generated) certificate.
+        if (httpsEnabled && (!certPath || !keyPath)) {
+          $("note").style.color = "#f87171";
+          $("note").textContent =
+            "HTTPS is enabled — please provide both a certificate and a private key path.";
+          return;
+        }
+        $("note").style.color = "";
+
         const payload = {
           newSettings: {
             backendUrl: $("backend-url").value.trim() || "https://localhost:3000",
-            https: {
-              enabled: $("https-enabled").checked,
-              certPath: $("cert-path").value.trim(),
-              keyPath: $("key-path").value.trim(),
-            },
+            https: { enabled: httpsEnabled, certPath, keyPath },
           },
         };
         try {
           await tauri.core.invoke("apply_settings", payload);
           $("note").textContent = "Saved. Restarting UI…";
         } catch (e) {
+          $("note").style.color = "#f87171";
           $("note").textContent = "Save failed: " + e;
         }
       }

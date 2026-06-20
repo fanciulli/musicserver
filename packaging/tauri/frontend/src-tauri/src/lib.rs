@@ -46,6 +46,20 @@ fn get_settings(state: tauri::State<'_, AppState>) -> Settings {
 
 #[tauri::command]
 fn apply_settings(app: AppHandle, new_settings: Settings) -> Result<(), String> {
+    // When UI HTTPS is enabled, both a certificate and a key are required: the
+    // embedded webview cannot load a self-signed (auto-generated) certificate,
+    // so a trusted cert/key pair must be provided explicitly.
+    if new_settings.https.enabled
+        && (new_settings.https.cert_path.trim().is_empty()
+            || new_settings.https.key_path.trim().is_empty())
+    {
+        return Err(
+            "HTTPS is enabled — provide both a certificate and a private key path \
+             (the desktop webview does not accept self-signed certificates)."
+                .to_string(),
+        );
+    }
+
     settings::save(&app, &new_settings)?;
     *app.state::<AppState>().settings.lock().unwrap() = new_settings;
 

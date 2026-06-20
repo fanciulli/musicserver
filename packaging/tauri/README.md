@@ -188,8 +188,11 @@ Saving restarts only the backend (MongoDB keeps running) and applies
   backend package's HTTPS-by-default. When it is `https`, the UI server
   automatically trusts a self-signed backend certificate (handled by
   `server.ts`).
-- **Serve the UI over HTTPS** with an optional certificate/key (same
-  auto-generate behaviour as the backend).
+- **Serve the UI over HTTPS** — **off by default**. When enabled you must
+  provide **both** a certificate and a private key path (validated on save): the
+  desktop webview rejects self-signed certificates, so the pair must be trusted
+  by your OS. Leave it off to serve the UI over local HTTP (loopback only) — the
+  default.
 
 Saving restarts only the UI sidecar and reloads the window.
 
