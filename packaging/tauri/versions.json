@@ -14,7 +14,7 @@
     },
     "ui": {
       "url": "https://github.com/fanciulli/musicserver-admin-ui.git",
-      "ref": "main"
+      "ref": "claude/clever-heisenberg-jacc2b"
     }
   }
 }
