@@ -490,12 +490,11 @@ fn mark_backend_up(app: &AppHandle) {
         let s = state.settings.lock().unwrap();
         (s.https.enabled, s.backend_port)
     };
-    let scheme = if https { "https" } else { "http" };
     update_status(app, |s| {
         s.backend = true;
         s.https = https;
         s.backend_port = backend_port;
-        s.message = format!("Backend API ready on {scheme}://{HOST}:{backend_port}");
+        s.message = String::new();
     });
 }
 
@@ -505,7 +504,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let show = MenuItemBuilder::with_id("show", "Show status").build(app)?;
     let settings_item = MenuItemBuilder::with_id("settings", "Settings…").build(app)?;
     let open_data = MenuItemBuilder::with_id("open_data", "Open data folder").build(app)?;
-    let quit = MenuItemBuilder::with_id("quit", "Quit Music Server backend").build(app)?;
+    let quit = MenuItemBuilder::with_id("quit", "Quit Music Server").build(app)?;
     let menu = MenuBuilder::new(app)
         .item(&show)
         .item(&settings_item)
@@ -515,7 +514,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 
     TrayIconBuilder::with_id("main")
         .icon(app.default_window_icon().unwrap().clone())
-        .tooltip("Music Server Backend")
+        .tooltip("Music Server")
         .menu(&menu)
         .on_menu_event(|app, event| match event.id().as_ref() {
             "show" => show_window(app, "main"),

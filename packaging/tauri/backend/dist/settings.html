@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Backend Settings</title>
+    <title>Settings</title>
     <style>
       :root { color-scheme: light dark; }
       * { box-sizing: border-box; }
@@ -34,22 +34,22 @@
     </style>
   </head>
   <body>
-    <h1>Backend Settings</h1>
+    <h1>Settings</h1>
     <div class="sub">Configure how the backend API is served. Changes restart the backend.</div>
 
     <div id="note"></div>
 
     <fieldset>
       <legend>Ports</legend>
-      <label for="backend-port">Backend API port</label>
+      <label for="backend-port">Server port</label>
       <input type="number" id="backend-port" min="1" max="65535" placeholder="3000" />
 
       <label for="mongo-port">MongoDB port</label>
       <input type="number" id="mongo-port" min="1" max="65535" placeholder="27017" />
 
       <div class="hint">
-        Changing the MongoDB port also restarts MongoDB. If the backend port changes,
-        update the admin UI's backend URL to match.
+        Changing the MongoDB port also restarts MongoDB service. If the server port changes,
+        update the admin UI's Music Server URL to match.
       </div>
     </fieldset>
 

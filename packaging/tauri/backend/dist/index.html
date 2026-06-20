@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Music Server Backend</title>
+    <title>Music Server</title>
     <style>
       :root { color-scheme: light dark; }
       * { box-sizing: border-box; }
@@ -27,8 +27,8 @@
     </style>
   </head>
   <body>
-    <h1>Music Server — Backend</h1>
-    <div class="sub">Headless backend package. No admin UI is served here.</div>
+    <h1>Configuration panel</h1>
+    <div class="sub">Status of the server services</div>
 
     <div class="row">
       <span id="mongo-dot" class="dot"></span>
@@ -54,7 +54,7 @@
           "127.0.0.1:" + (status.mongoPort || 27017);
         document.getElementById("backend-detail").textContent =
           (status.https ? "https" : "http") + "://localhost:" + (status.backendPort || 3000);
-        if (status.message) document.getElementById("msg").textContent = status.message;
+        document.getElementById("msg").textContent = status.message || "";
       }
 
       async function refresh() {
