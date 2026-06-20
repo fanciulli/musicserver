@@ -68,7 +68,7 @@ pub fn run() {
         .menu(|handle| {
             let settings_item = MenuItemBuilder::with_id("settings", "Settings…").build(handle)?;
             let quit = MenuItemBuilder::with_id("quit", "Quit").build(handle)?;
-            let app_menu = SubmenuBuilder::new(handle, "Music Server")
+            let app_menu = SubmenuBuilder::new(handle, "Music Server Admin UI")
                 .item(&settings_item)
                 .separator()
                 .item(&quit)
