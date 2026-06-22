@@ -73,6 +73,12 @@ const TARGETS = {
     mongoBuild: (v) => `mongodb-win32-x86_64-windows-${v}`,
     mongoUrl: (v) => `https://fastdl.mongodb.org/windows/mongodb-windows-x86_64-${v}.zip`,
   },
+  "win-arm64": {
+    triple: "aarch64-pc-windows-msvc",
+    nodePlatform: "win", nodeArch: "arm64", nodeExt: "zip", isWin: true,
+    // MongoDB ships no official Windows ARM64 build, so only the frontend
+    // package (which bundles just the Node sidecar) targets win-arm64.
+  },
 };
 
 const args = parseArgs(process.argv.slice(2));
@@ -131,6 +137,7 @@ function resolveTarget(name) {
       "linux-x64": "linux-x64",
       "linux-arm64": "linux-arm64",
       "win32-x64": "win-x64",
+      "win32-arm64": "win-arm64",
     };
     name = map[`${hostPlatform}-${hostArch}`];
     if (!name) fail(`unsupported host: ${hostPlatform}-${hostArch}`);

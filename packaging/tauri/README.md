@@ -120,6 +120,27 @@ Flags:
 > the host platform (and architecture) it runs on. To produce installers for all
 > platforms, run the build on each platform (e.g. via CI runners).
 
+## Continuous integration (GitHub Actions)
+
+`.github/workflows/build-packages.yml` builds both packages for five
+architectures, **natively on a matching-architecture runner** (no
+cross-compilation). Trigger it manually (`workflow_dispatch`) or by pushing a
+`v*` tag. Each matrix entry uploads the produced installers as an artifact
+named `musicserver-<app>-<target>`.
+
+| Target | Runner | Backend | Frontend |
+| --- | --- | :-: | :-: |
+| `macos-x64` (Intel) | `macos-13` | ✅ | ✅ |
+| `macos-arm64` (Apple Silicon) | `macos-14` | ✅ | ✅ |
+| `win-x64` | `windows-latest` | ✅ | ✅ |
+| `win-arm64` | `windows-11-arm` | ❌ | ✅ |
+| `linux-x64` | `ubuntu-22.04` | ✅ | ✅ |
+
+> **Windows ARM64 backend is intentionally excluded:** MongoDB ships no official
+> Windows ARM64 binary, so `mongod` cannot be bundled there. The frontend
+> (Node-only sidecar) is built for `win-arm64`. ("windows x86" here means the
+> 64-bit x86_64/x64 build, mirroring "macos x86" = Intel 64-bit.)
+
 ## Dev mode
 
 ```bash
