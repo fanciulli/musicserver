@@ -46,7 +46,7 @@ const TARGETS = {
   "macos-arm64": {
     triple: "aarch64-apple-darwin",
     nodePlatform: "darwin", nodeArch: "arm64", nodeExt: "tar.gz", isWin: false,
-    mongoBuild: (v) => `mongodb-macos-arm64-${v}`,
+    mongoBuild: (v) => `mongodb-macos-aarch64-${v}`,
     mongoUrl: (v) => `https://fastdl.mongodb.org/osx/mongodb-macos-arm64-${v}.tgz`,
   },
   "macos-x64": {
@@ -339,7 +339,11 @@ function log(msg) { process.stdout.write(`[prepare] ${msg}\n`); }
 function fail(msg) { process.stderr.write(`[prepare] ERROR: ${msg}\n`); process.exit(1); }
 
 function run(cmd, args, opts = {}) {
-  const r = spawnSync(cmd, args, { stdio: "inherit", shell: false, ...opts });
+  // On Windows, `npm`/`npx` are `.cmd` scripts; Node refuses to spawn those
+  // without a shell (since the CVE-2024-27980 fix), so run them through cmd.exe.
+  // Their args here have no spaces, so shell quoting is not a concern.
+  const useShell = process.platform === "win32" && (cmd === "npm" || cmd === "npx");
+  const r = spawnSync(cmd, args, { stdio: "inherit", shell: useShell, ...opts });
   if (r.status !== 0) fail(`command failed: ${cmd} ${args.join(" ")} (exit ${r.status})`);
 }
 
