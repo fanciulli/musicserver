@@ -14,6 +14,8 @@ on:
   push:
     tags:
       - "v*"
+    branches:
+      - "claude/clever-heisenberg-jacc2b"
 
 concurrency:
   group: build-packages-${{ github.ref }}
