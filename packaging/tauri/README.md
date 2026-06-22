@@ -133,13 +133,11 @@ named `musicserver-<app>-<target>`.
 | `macos-x64` (Intel) | `macos-13` | ✅ | ✅ |
 | `macos-arm64` (Apple Silicon) | `macos-14` | ✅ | ✅ |
 | `win-x64` | `windows-latest` | ✅ | ✅ |
-| `win-arm64` | `windows-11-arm` | ❌ | ✅ |
 | `linux-x64` | `ubuntu-22.04` | ✅ | ✅ |
 
-> **Windows ARM64 backend is intentionally excluded:** MongoDB ships no official
-> Windows ARM64 binary, so `mongod` cannot be bundled there. The frontend
-> (Node-only sidecar) is built for `win-arm64`. ("windows x86" here means the
-> 64-bit x86_64/x64 build, mirroring "macos x86" = Intel 64-bit.)
+> ("windows x86" here means the 64-bit x86_64/x64 build, mirroring "macos x86" =
+> Intel 64-bit.) Windows ARM64 is not targeted: MongoDB has no official Windows
+> ARM64 binary to bundle for the backend.
 
 ## Dev mode
 

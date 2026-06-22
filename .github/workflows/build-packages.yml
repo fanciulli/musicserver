@@ -6,8 +6,8 @@ name: Build packages
 #
 # Notes:
 # - "windows x86" is interpreted as x86_64 (x64), mirroring "macos x86" (Intel 64-bit).
-# - The backend package is NOT built for Windows ARM64: MongoDB ships no official
-#   Windows ARM64 binary, so it cannot be bundled there.
+# - Windows ARM64 is not targeted (MongoDB has no official Windows ARM64 binary
+#   to bundle for the backend).
 
 on:
   workflow_dispatch: {}
@@ -36,7 +36,6 @@ jobs:
           - { app: frontend, target: macos-x64,   os: macos-13,       bundles: "app,dmg" }
           - { app: frontend, target: macos-arm64, os: macos-14,       bundles: "app,dmg" }
           - { app: frontend, target: win-x64,     os: windows-latest, bundles: "nsis" }
-          - { app: frontend, target: win-arm64,   os: windows-11-arm, bundles: "nsis" }
           - { app: frontend, target: linux-x64,   os: ubuntu-22.04,   bundles: "deb,appimage" }
 
     steps:
