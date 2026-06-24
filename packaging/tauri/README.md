@@ -122,11 +122,23 @@ Flags:
 
 ## Continuous integration (GitHub Actions)
 
-`.github/workflows/build-packages.yml` builds both packages for five
-architectures, **natively on a matching-architecture runner** (no
-cross-compilation). Trigger it manually (`workflow_dispatch`) or by pushing a
-`v*` tag. Each matrix entry uploads the produced installers as an artifact
-named `musicserver-<app>-<target>`.
+`.github/workflows/build-packages.yml` builds both packages for four
+architectures. Trigger it manually (`workflow_dispatch`) or by pushing a `v*`
+tag. Each matrix entry uploads the produced installers as a workflow artifact
+named `musicserver-<app>-<target>` (downloadable from the run page).
+
+Pushing a **`v*` tag** additionally runs a `release` job that publishes all the
+installers (`.dmg`, `-setup.exe`, `.deb`) to a **GitHub Release**, so they are
+downloadable from the repository's Releases page without signing in. Example:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+macOS Intel (`macos-x64`) is **cross-compiled on the Apple Silicon runner**
+(`macos-14`) because GitHub's Intel runners (`macos-13`) are being retired; the
+other targets build natively.
 
 | Target | Runner | Backend | Frontend |
 | --- | --- | :-: | :-: |

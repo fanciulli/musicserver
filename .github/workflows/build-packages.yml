@@ -7,6 +7,11 @@ name: Build packages
 # Every job builds with an explicit Rust target and stages the matching sidecars
 # via MUSICSERVER_TARGET.
 #
+# Each build uploads its bundle as a workflow artifact (downloadable from the run
+# page). On a `v*` tag push, the `release` job additionally publishes all
+# installers to a GitHub Release, so they are downloadable from the repository's
+# Releases page without signing in.
+#
 # Notes:
 # - "windows x86" is interpreted as x86_64 (x64), mirroring "macos x86" (Intel 64-bit).
 # - Windows ARM64 is not targeted (MongoDB has no official Windows ARM64 binary
@@ -92,3 +97,29 @@ jobs:
           path: packaging/tauri/${{ matrix.app }}/src-tauri/target/${{ matrix.rust }}/release/bundle/**
           if-no-files-found: error
           retention-days: 14
+
+  # Publish all installers to a GitHub Release (downloadable from the Releases
+  # page without signing in). Runs only when a `v*` tag is pushed, after every
+  # build has succeeded.
+  release:
+    name: Publish release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Publish to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/**/*.dmg
+            artifacts/**/*.deb
+            artifacts/**/*-setup.exe
+          fail_on_unmatched_files: false
+          generate_release_notes: true
