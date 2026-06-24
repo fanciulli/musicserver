@@ -42,10 +42,10 @@ Now edit the file `plugins.json` under /data/plugins in order to add the followi
 
 ```
 "musciserver": {
-     		"enabled": {
-        	"type": "boolean",
-        	"value": true
-      	}
+     	"enabled": {
+        "type": "boolean",
+        "value": true
+}
 ```
 
 Restart Volumio. In Volumio UI go to Plugins > Music Server and click on `Settings`. The configuration page is shown. Update it based on your current environment:
