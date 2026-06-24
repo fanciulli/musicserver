@@ -84,7 +84,10 @@ if (!["backend", "frontend", "both"].includes(appArg)) {
   fail(`unknown --app '${appArg}' (expected backend | frontend | both)`);
 }
 
-const target = resolveTarget(args.target ?? "host");
+// Target precedence: explicit --target arg > MUSICSERVER_TARGET env > host.
+// The env lets CI cross-builds (e.g. x86_64 macOS on an arm64 runner) stage the
+// right sidecars while the beforeBuildCommand stays target-agnostic.
+const target = resolveTarget(args.target ?? process.env.MUSICSERVER_TARGET ?? "host");
 
 await main();
 

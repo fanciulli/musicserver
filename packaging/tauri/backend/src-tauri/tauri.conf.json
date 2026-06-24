@@ -5,7 +5,7 @@
   "identifier": "org.musicserver.backend",
   "build": {
     "frontendDist": "../dist",
-    "beforeBuildCommand": "node ../scripts/prepare-sidecars.mjs --app backend --target host"
+    "beforeBuildCommand": "node ../scripts/prepare-sidecars.mjs --app backend"
   },
   "app": {
     "withGlobalTauri": true,

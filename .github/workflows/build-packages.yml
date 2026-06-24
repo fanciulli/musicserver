@@ -1,8 +1,11 @@
 name: Build packages
 
-# Builds the Tauri desktop packages (backend + frontend) natively on a
-# matching-architecture runner for each target. Native builds avoid Rust/NSIS
-# cross-compilation pitfalls.
+# Builds the Tauri desktop packages (backend + frontend) for each target.
+#
+# macOS Intel (x86_64) is cross-compiled on an Apple Silicon runner (macos-14)
+# because GitHub's Intel macOS runners (macos-13) are scarce/being retired.
+# Every job builds with an explicit Rust target and stages the matching sidecars
+# via MUSICSERVER_TARGET.
 #
 # Notes:
 # - "windows x86" is interpreted as x86_64 (x64), mirroring "macos x86" (Intel 64-bit).
@@ -14,6 +17,8 @@ on:
   push:
     tags:
       - "v*"
+    branches:
+      - "claude/clever-heisenberg-jacc2b"
 
 concurrency:
   group: build-packages-${{ github.ref }}
@@ -28,15 +33,15 @@ jobs:
       matrix:
         include:
           # ── backend (no Windows ARM64 — no MongoDB build for it) ──
-          - { app: backend,  target: macos-x64,   os: macos-13,       bundles: "app,dmg" }
-          - { app: backend,  target: macos-arm64, os: macos-14,       bundles: "app,dmg" }
-          - { app: backend,  target: win-x64,     os: windows-latest, bundles: "nsis" }
-          - { app: backend,  target: linux-x64,   os: ubuntu-22.04,   bundles: "deb"  }
+          - { app: backend,  target: macos-x64,   rust: x86_64-apple-darwin,      os: macos-14,       bundles: "app,dmg" }
+          - { app: backend,  target: macos-arm64, rust: aarch64-apple-darwin,     os: macos-14,       bundles: "app,dmg" }
+          - { app: backend,  target: win-x64,     rust: x86_64-pc-windows-msvc,   os: windows-latest, bundles: "nsis" }
+          - { app: backend,  target: linux-x64,   rust: x86_64-unknown-linux-gnu, os: ubuntu-22.04,   bundles: "deb" }
           # ── frontend ──
-          - { app: frontend, target: macos-x64,   os: macos-13,       bundles: "app,dmg" }
-          - { app: frontend, target: macos-arm64, os: macos-14,       bundles: "app,dmg" }
-          - { app: frontend, target: win-x64,     os: windows-latest, bundles: "nsis" }
-          - { app: frontend, target: linux-x64,   os: ubuntu-22.04,   bundles: "deb"  }
+          - { app: frontend, target: macos-x64,   rust: x86_64-apple-darwin,      os: macos-14,       bundles: "app,dmg" }
+          - { app: frontend, target: macos-arm64, rust: aarch64-apple-darwin,     os: macos-14,       bundles: "app,dmg" }
+          - { app: frontend, target: win-x64,     rust: x86_64-pc-windows-msvc,   os: windows-latest, bundles: "nsis" }
+          - { app: frontend, target: linux-x64,   rust: x86_64-unknown-linux-gnu, os: ubuntu-22.04,   bundles: "deb" }
 
     steps:
       - name: Checkout
@@ -49,6 +54,8 @@ jobs:
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust }}
 
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
@@ -76,12 +83,14 @@ jobs:
 
       - name: Build ${{ matrix.app }} (${{ matrix.target }})
         working-directory: packaging/tauri/${{ matrix.app }}
-        run: npx tauri build --bundles ${{ matrix.bundles }}
+        env:
+          MUSICSERVER_TARGET: ${{ matrix.target }}
+        run: npx tauri build --target ${{ matrix.rust }} --bundles ${{ matrix.bundles }}
 
       - name: Upload installers
         uses: actions/upload-artifact@v4
         with:
           name: musicserver-${{ matrix.app }}-${{ matrix.target }}
-          path: packaging/tauri/${{ matrix.app }}/src-tauri/target/release/bundle/**
+          path: packaging/tauri/${{ matrix.app }}/src-tauri/target/${{ matrix.rust }}/release/bundle/**
           if-no-files-found: error
           retention-days: 14
