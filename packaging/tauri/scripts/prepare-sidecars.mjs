@@ -168,6 +168,8 @@ function npmInstall(dir, opts = {}) {
   const cmd = hasLock ? ["ci"] : ["install", "--no-audit", "--no-fund"];
   if (opts.prod) cmd.push("--omit=dev");
   if (opts.ignoreScripts) cmd.push("--ignore-scripts");
+  // Be resilient to transient registry/network blips on CI runners.
+  cmd.push("--fetch-retries=5", "--fetch-retry-factor=3", "--fetch-retry-mintimeout=10000");
   run("npm", cmd, { cwd: dir });
 }
 
