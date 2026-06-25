@@ -1,5 +1,5 @@
 {
-  "node": "20.20.1",
+  "node": "22.22.2",
   "mongodb": {
     "linux-x64": { "version": "7.0.14", "distro": "ubuntu2204" },
     "linux-arm64": { "version": "7.0.14", "distro": "ubuntu2204" },
@@ -10,11 +10,11 @@
   "repos": {
     "backend": {
       "url": "https://github.com/fanciulli/musicserver-backend.git",
-      "ref": "main"
+      "ref": "claude/clever-heisenberg-jacc2b"
     },
     "ui": {
       "url": "https://github.com/fanciulli/musicserver-admin-ui.git",
-      "ref": "main"
+      "ref": "claude/clever-heisenberg-jacc2b"
     }
   }
 }

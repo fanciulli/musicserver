@@ -1,0 +1,15 @@
+{
+  "name": "musicserver-backend-tauri",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Tauri desktop package for the Music Server backend (backend + MongoDB, no UI).",
+  "scripts": {
+    "prepare:sidecars": "node ../scripts/prepare-sidecars.mjs --app backend --target host",
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

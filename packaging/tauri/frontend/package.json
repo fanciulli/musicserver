@@ -1,0 +1,15 @@
+{
+  "name": "musicserver-frontend-tauri",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Tauri desktop package for the Music Server admin UI (connects to the backend over the network).",
+  "scripts": {
+    "prepare:sidecars": "node ../scripts/prepare-sidecars.mjs --app frontend --target host",
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

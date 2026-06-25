@@ -1,0 +1,125 @@
+name: Build packages
+
+# Builds the Tauri desktop packages (backend + frontend) for each target.
+#
+# macOS Intel (x86_64) is cross-compiled on an Apple Silicon runner (macos-14)
+# because GitHub's Intel macOS runners (macos-13) are scarce/being retired.
+# Every job builds with an explicit Rust target and stages the matching sidecars
+# via MUSICSERVER_TARGET.
+#
+# Each build uploads its bundle as a workflow artifact (downloadable from the run
+# page). On a `v*` tag push, the `release` job additionally publishes all
+# installers to a GitHub Release, so they are downloadable from the repository's
+# Releases page without signing in.
+#
+# Notes:
+# - "windows x86" is interpreted as x86_64 (x64), mirroring "macos x86" (Intel 64-bit).
+# - Windows ARM64 is not targeted (MongoDB has no official Windows ARM64 binary
+#   to bundle for the backend).
+
+on:
+  workflow_dispatch: {}
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: build-packages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.app }} · ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ── backend (no Windows ARM64 — no MongoDB build for it) ──
+          - { app: backend,  target: macos-x64,   rust: x86_64-apple-darwin,      os: macos-14,       bundles: "app,dmg" }
+          - { app: backend,  target: macos-arm64, rust: aarch64-apple-darwin,     os: macos-14,       bundles: "app,dmg" }
+          - { app: backend,  target: win-x64,     rust: x86_64-pc-windows-msvc,   os: windows-latest, bundles: "nsis" }
+          - { app: backend,  target: linux-x64,   rust: x86_64-unknown-linux-gnu, os: ubuntu-22.04,   bundles: "deb" }
+          # ── frontend ──
+          - { app: frontend, target: macos-x64,   rust: x86_64-apple-darwin,      os: macos-14,       bundles: "app,dmg" }
+          - { app: frontend, target: macos-arm64, rust: aarch64-apple-darwin,     os: macos-14,       bundles: "app,dmg" }
+          - { app: frontend, target: win-x64,     rust: x86_64-pc-windows-msvc,   os: windows-latest, bundles: "nsis" }
+          - { app: frontend, target: linux-x64,   rust: x86_64-unknown-linux-gnu, os: ubuntu-22.04,   bundles: "deb" }
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust }}
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packaging/tauri/${{ matrix.app }}/src-tauri
+          key: ${{ matrix.target }}
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            patchelf \
+            build-essential \
+            curl wget file
+
+      - name: Install package toolchain (Tauri CLI)
+        working-directory: packaging/tauri/${{ matrix.app }}
+        run: npm install
+
+      - name: Build ${{ matrix.app }} (${{ matrix.target }})
+        working-directory: packaging/tauri/${{ matrix.app }}
+        env:
+          MUSICSERVER_TARGET: ${{ matrix.target }}
+        run: npx tauri build --target ${{ matrix.rust }} --bundles ${{ matrix.bundles }}
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: musicserver-${{ matrix.app }}-${{ matrix.target }}
+          path: packaging/tauri/${{ matrix.app }}/src-tauri/target/${{ matrix.rust }}/release/bundle/**
+          if-no-files-found: error
+          retention-days: 14
+
+  # Publish all installers to a GitHub Release (downloadable from the Releases
+  # page without signing in). Runs only when a `v*` tag is pushed, after every
+  # build has succeeded.
+  release:
+    name: Publish release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Publish to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/**/*.dmg
+            artifacts/**/*.deb
+            artifacts/**/*-setup.exe
+          fail_on_unmatched_files: false
+          generate_release_notes: true
