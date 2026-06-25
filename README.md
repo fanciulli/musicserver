@@ -61,11 +61,13 @@ applications built with [Tauri v2](https://v2.tauri.app/). There are **two
 separate packages** (see issue
 [#110](https://github.com/fanciulli/musicserver-backend/issues/110)):
 
-- **Backend** — bundles the Music Server backend and MongoDB. It shows no admin
-  UI: it runs in the system tray (with a small status window) and exposes the
-  API on port `3000`.
-- **Frontend** — bundles the admin UI and shows it as a desktop application,
-  connecting to the backend over the network.
+- **Backend** ("Music Server") — bundles the Music Server backend and MongoDB.
+  It shows no admin UI: it runs in the system tray (with a small status window)
+  and exposes the API on port `3000` (HTTPS enabled by default). The API/MongoDB
+  ports and HTTPS are configurable from the tray **Settings**, and persist.
+- **Frontend** ("Music Server Admin UI") — bundles the admin UI and shows it as
+  a desktop application, connecting to the backend over the network (backend URL
+  configurable from the app menu **Settings**).
 
 All packaging code lives in this repository under `packaging/tauri/`. See
 [`packaging/tauri/README.md`](./packaging/tauri/README.md) for full build
@@ -91,3 +93,10 @@ Installers/bundles are produced under
 
 Building Tauri apps requires the Rust toolchain and each platform's native
 webview prerequisites — see the packaging README for the full list.
+
+### Prebuilt installers
+
+A GitHub Actions workflow (`.github/workflows/build-packages.yml`) builds both
+packages for macOS (Intel + Apple Silicon), Windows x64 and Linux x64. Pushing a
+`v*` tag publishes the installers (`.dmg`, NSIS `-setup.exe`, `.deb`) to a
+GitHub Release.

@@ -45,17 +45,17 @@ packaging/tauri/
 │   └── prepare-sidecars.mjs      # builds sources, fetches runtimes, stages sidecars + resources
 ├── backend/                      # backend desktop package
 │   ├── package.json
-│   ├── dist/index.html           # tray status page
+│   ├── dist/{index.html,settings.html}   # tray status + settings pages
 │   └── src-tauri/
 │       ├── tauri.conf.json
 │       ├── Cargo.toml
 │       ├── capabilities/default.json
 │       ├── icons/
-│       └── src/{main.rs,lib.rs}
+│       └── src/{main.rs,lib.rs,settings.rs}
 └── frontend/                     # admin UI desktop package
     ├── package.json
-    ├── dist/index.html           # loading page (window is then navigated to the UI)
-    └── src-tauri/ ...
+    ├── dist/{index.html,settings.html}   # loading page + settings page
+    └── src-tauri/ ...             # tauri.conf.json, src/{main,lib,settings}.rs, …
 ```
 
 `binaries/`, `resources/`, `target/`, `gen/` and `Cargo.lock` are generated and
@@ -115,10 +115,14 @@ Flags:
 - `--offline` — don't `git pull` / re-download; reuse cached sources and runtimes.
 - `--skip-build` — reuse already-built sources in `.work/`, just re-stage.
 
-> **Note on cross-compilation:** `prepare-sidecars.mjs` will fetch the Node and
-> MongoDB binaries for any target, but `tauri build` itself produces a bundle for
-> the host platform (and architecture) it runs on. To produce installers for all
-> platforms, run the build on each platform (e.g. via CI runners).
+> **Note on cross-compilation:** `prepare-sidecars.mjs` fetches the Node and
+> MongoDB binaries for the chosen target. The target is taken from `--target`,
+> else the `MUSICSERVER_TARGET` env var, else the host. To cross-compile, set
+> `MUSICSERVER_TARGET=<id>` and pass the Rust triple to Tauri, e.g.
+> `MUSICSERVER_TARGET=macos-x64 npx tauri build --target x86_64-apple-darwin`
+> (this is exactly how the CI builds macOS Intel on an Apple Silicon runner).
+> Cross-OS builds still need that OS's toolchain, so the CI runs one OS per
+> runner.
 
 ## Continuous integration (GitHub Actions)
 
@@ -142,10 +146,12 @@ other targets build natively.
 
 | Target | Runner | Backend | Frontend |
 | --- | --- | :-: | :-: |
-| `macos-x64` (Intel) | `macos-13` | ✅ | ✅ |
+| `macos-x64` (Intel) | `macos-14` (cross-compiled) | ✅ | ✅ |
 | `macos-arm64` (Apple Silicon) | `macos-14` | ✅ | ✅ |
 | `win-x64` | `windows-latest` | ✅ | ✅ |
 | `linux-x64` | `ubuntu-22.04` | ✅ | ✅ |
+
+Installers produced: macOS `.dmg`, Windows NSIS `-setup.exe`, Linux `.deb`.
 
 > ("windows x86" here means the 64-bit x86_64/x64 build, mirroring "macos x86" =
 > Intel 64-bit.) Windows ARM64 is not targeted: MongoDB has no official Windows
@@ -182,8 +188,8 @@ manually first.)
 - Starts the admin UI (the custom `server.js`) on `127.0.0.1:3001`
   (HTTP or HTTPS depending on the saved settings).
 - Points the window at `http(s)://localhost:3001` once it is ready.
-- The application menu **Music Server → Settings…** configures the backend URL
-  and UI HTTPS.
+- The application menu **Music Server Admin UI → Settings…** configures the
+  backend URL and UI HTTPS.
 
 ## Settings & HTTPS
 
