@@ -35,9 +35,14 @@ All repos move to **one shared version** (`vX.Y.Z`) per release.
   - `frontend/package.json` → `.version`
   - `backend/src-tauri/tauri.conf.json` → `.version`
   - `frontend/src-tauri/tauri.conf.json` → `.version`
-  - `backend/src-tauri/Cargo.toml` → `version = "..."` (package section)
-  - `frontend/src-tauri/Cargo.toml` → `version = "..."` (package section)
-  - After editing the Cargo.toml files, refresh `Cargo.lock` (run `cargo update -p music-server-backend -p music-server-admin-ui --precise <ver>` if `cargo` is available, otherwise `cargo build` in each `src-tauri` dir; if Rust isn't installed, leave the lockfiles and note it).
+  - `backend/src-tauri/Cargo.toml` → `version = "..."` (package section; crate name `musicserver-backend`)
+  - `frontend/src-tauri/Cargo.toml` → `version = "..."` (package section; crate name `musicserver-frontend`)
+  - After editing the Cargo.toml files you may refresh each lockfile
+    (`cargo update --manifest-path <dir>/Cargo.toml -p musicserver-backend --precise <ver>`,
+    likewise `musicserver-frontend` for the frontend) if `cargo` is available.
+    **Note: both `Cargo.lock` files are git-ignored in this repo**, so they are
+    never committed and are regenerated at build time — the refresh is optional
+    and has no effect on the release commit. If Rust isn't installed, skip it.
 
 > Historically the versions diverged (backend `0.0.1`, admin-ui `1.2.2`,
 > volumio `0.1.1`, desktop `0.1.0`). From the first release driven by this skill
@@ -78,7 +83,9 @@ For each of the four repos:
 ### 3. Bump, commit, tag, push — per repo
 For each repo, in this order: backend, admin-ui, volumio-plugin, musicserver.
 1. Edit every version file listed above for that repo to the new version.
-2. `git add -A && git commit -m "Release vX.Y.Z"`.
+2. `git add -A && git commit -m "Release vX.Y.Z"`. Use exactly this single-line
+   message — **no co-authoring trailers, no session/tool attribution** (see
+   guardrails).
 3. Create an **annotated** tag: `git tag -a vX.Y.Z -m "Release vX.Y.Z"`.
 4. Push branch then tag, each with retry/backoff:
    - `git push -u origin main`
@@ -175,4 +182,6 @@ and `body=<changelog>`, or update the existing umbrella release's body.)
 - If any repo fails mid-way (e.g. push rejected), stop and report which repos
   were already tagged/pushed so the release can be reconciled, rather than
   leaving a partial state silently.
-- Keep commit/tag messages free of any internal model identifiers.
+- Keep commit/tag messages clean: a plain `Release vX.Y.Z` only. They must **not**
+  contain any co-authoring notice (no `Co-Authored-By:` lines), session/tool
+  attribution trailers, or internal model identifiers.
