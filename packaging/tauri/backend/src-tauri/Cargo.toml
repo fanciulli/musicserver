@@ -1,6 +1,6 @@
 [package]
 name = "musicserver-backend"
-version = "0.1.0"
+version = "1.0.0-alpha2"
 description = "Music Server backend desktop package (backend + MongoDB, no UI)"
 authors = ["Massimiliano Fanciulli"]
 edition = "2021"
