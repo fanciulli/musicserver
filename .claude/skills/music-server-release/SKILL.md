@@ -45,11 +45,17 @@ All repos move to **one shared version** (`vX.Y.Z`) per release.
 
 ## Tooling
 
-Use the GitHub tooling available in the session:
-- Prefer the `gh` CLI (`gh workflow run`, `gh release create`, `gh run list`).
-- If `gh` is unavailable but GitHub MCP tools are (`mcp__github__*`), use
-  `actions_run_trigger` for workflow dispatch and `list_releases`/`get_latest_release`
-  plus the appropriate release tool instead.
+**First, detect which GitHub tooling is available** (`command -v gh`) and pick one
+path for the whole run — don't mix:
+- If `gh` is present, use the `gh` CLI (`gh workflow run`, `gh release create`,
+  `gh run list`).
+- If `gh` is **absent**, use the GitHub MCP tools (`mcp__github__*`) instead — this
+  is the expected path in remote/web sessions, where `gh` is usually not
+  installed. The `gh` commands shown below are illustrative; the MCP equivalent is
+  noted at each step (`actions_run_trigger` for dispatch, `list_releases` /
+  `get_release_by_tag` to check, and the create/update release tools for notes).
+
+Git operations (bump/commit/tag/push) always use plain `git` regardless.
 
 ## Procedure
 
@@ -93,8 +99,10 @@ gh workflow run docker-image.yml --repo fanciulli/musicserver-backend  --ref vX.
 gh workflow run docker-image.yml --repo fanciulli/musicserver-admin-ui --ref vX.Y.Z
 ```
 
-(MCP equivalent: `actions_run_trigger` with `workflow=docker-image.yml`,
-`ref=vX.Y.Z`.) These publish `ghcr.io/fanciulli/<repo>:vX.Y.Z`.
+If `gh` is absent (the usual case in remote/web sessions), dispatch via MCP
+instead: `actions_run_trigger` with `owner=fanciulli`, `repo=musicserver-backend`
+(then `musicserver-admin-ui`), `workflow_file=docker-image.yml`, `ref=vX.Y.Z`.
+These publish `ghcr.io/fanciulli/<repo>:vX.Y.Z`.
 
 ### 5. Compute the changelog and publish a GitHub Release per repo
 For **each** repo, compute a changelog from the commit history and attach it to a
@@ -102,15 +110,26 @@ GitHub Release on the `vX.Y.Z` tag.
 
 1. **Determine the previous tag** for the repo:
    `prev=$(git -C <repo> describe --tags --abbrev=0 "vX.Y.Z^" 2>/dev/null)`.
-   If there is no previous tag (first release), use the full history.
+   If there is no previous tag (first release), **do not dump the entire history**
+   — that pulls in unrelated bootstrap/skill/`chore` commits and makes a noisy
+   changelog. Instead:
+   - If the repo has *any* earlier tag at all, use the most recent one as the
+     baseline even if it's a pre-release.
+   - Otherwise (truly the first tag ever, e.g. the umbrella repo), ask the user
+     for a baseline ref/date, or default to a curated short list of the
+     user-facing changes rather than the raw `git log`. Drop release-bump and
+     tooling/`chore`/skill commits from the output.
 2. **Compute the changelog** from the commits in the range, excluding the
    release-bump commit itself:
    ```bash
    range="${prev:+$prev..}vX.Y.Z"            # "prev..vX.Y.Z" or just "vX.Y.Z"
    git -C <repo> log "$range" --no-merges \
      --pretty=format:'- %s (%h)' \
-     | grep -v 'Release vX.Y.Z' > /tmp/changelog-<repo>.md
+     | grep -vE '^- (Release v|music-server-release:|Add /music-server-release)' \
+     > /tmp/changelog-<repo>.md
    ```
+   Extend the `grep -vE` filter to drop other pure-tooling/`chore` subjects when
+   the baseline is wide (see step 1).
    If the range is empty, write a single `- No changes` line. Prefer a readable
    list of `- <subject> (<short-sha>)`; you may group by type if the subjects use
    conventional-commit prefixes. Title the body with a `## vX.Y.Z` heading.
