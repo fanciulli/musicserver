@@ -80,7 +80,8 @@ For each repo, in this order: backend, admin-ui, volumio-plugin, musicserver.
 
 > Pushing the `vX.Y.Z` tag to `musicserver` (umbrella) **automatically** starts
 > `build-packages.yml`, which builds the Tauri installers and publishes the
-> GitHub Release with generated notes. Do not dispatch it manually.
+> GitHub Release with generated notes. Do not dispatch it manually — in step 5
+> you augment that release with the computed changelog instead of creating it.
 
 ### 4. Trigger the Docker image builds
 The backend and admin-ui Docker workflows are `workflow_dispatch` and resolve
@@ -95,23 +96,61 @@ gh workflow run docker-image.yml --repo fanciulli/musicserver-admin-ui --ref vX.
 (MCP equivalent: `actions_run_trigger` with `workflow=docker-image.yml`,
 `ref=vX.Y.Z`.) These publish `ghcr.io/fanciulli/<repo>:vX.Y.Z`.
 
-### 5. Volumio plugin release notes (optional)
-The volumio plugin has no CI. After pushing its tag, optionally create a GitHub
-Release for it (`gh release create vX.Y.Z --repo fanciulli/musicserver-volumio-plugin --generate-notes`)
-so users can download the tagged source.
+### 5. Compute the changelog and publish a GitHub Release per repo
+For **each** repo, compute a changelog from the commit history and attach it to a
+GitHub Release on the `vX.Y.Z` tag.
+
+1. **Determine the previous tag** for the repo:
+   `prev=$(git -C <repo> describe --tags --abbrev=0 "vX.Y.Z^" 2>/dev/null)`.
+   If there is no previous tag (first release), use the full history.
+2. **Compute the changelog** from the commits in the range, excluding the
+   release-bump commit itself:
+   ```bash
+   range="${prev:+$prev..}vX.Y.Z"            # "prev..vX.Y.Z" or just "vX.Y.Z"
+   git -C <repo> log "$range" --no-merges \
+     --pretty=format:'- %s (%h)' \
+     | grep -v 'Release vX.Y.Z' > /tmp/changelog-<repo>.md
+   ```
+   If the range is empty, write a single `- No changes` line. Prefer a readable
+   list of `- <subject> (<short-sha>)`; you may group by type if the subjects use
+   conventional-commit prefixes. Title the body with a `## vX.Y.Z` heading.
+3. **Create / update the GitHub Release**, including the computed changelog as the
+   body. Use the `vX.Y.Z` tag (already pushed):
+   - backend, admin-ui, volumio-plugin (no auto-release exists, so create):
+     ```bash
+     gh release create vX.Y.Z --repo fanciulli/<repo> \
+       --title "vX.Y.Z" --notes-file /tmp/changelog-<repo>.md
+     ```
+     If a release already exists, edit it instead:
+     `gh release edit vX.Y.Z --repo fanciulli/<repo> --notes-file /tmp/changelog-<repo>.md`.
+   - **musicserver (umbrella)**: `build-packages.yml` already creates this release
+     (with installers + auto-generated notes). Do **not** create a second one —
+     wait until that release exists, then set its body to include the computed
+     changelog:
+     ```bash
+     gh release edit vX.Y.Z --repo fanciulli/musicserver --notes-file /tmp/changelog-musicserver.md
+     ```
+     (Optionally keep the auto-generated notes by appending them after the
+     changelog rather than overwriting.)
+
+(MCP equivalent: use the GitHub release tools to create the release with `tag_name=vX.Y.Z`
+and `body=<changelog>`, or update the existing umbrella release's body.)
 
 ### 6. Verify and report
 - Wait for / poll the workflow runs (`gh run list --repo <repo> --branch vX.Y.Z`
   or per workflow). Surface failures with their logs.
-- Confirm the umbrella GitHub Release was created and the desktop installers
-  (`.dmg`, `.deb`, `-setup.exe`) are attached.
+- Confirm a GitHub Release exists on `vX.Y.Z` for **each** repo and that its body
+  contains the computed changelog.
+- Confirm the umbrella release has the desktop installers (`.dmg`, `.deb`,
+  `-setup.exe`) attached.
 - Confirm both GHCR images exist at `:vX.Y.Z`.
 - Report a concise summary: version, the four tags pushed, image tags published,
-  release URL, and the status of each triggered workflow.
+  the four release URLs, and the status of each triggered workflow.
 
 ## Guardrails
-- This skill pushes tags, triggers builds and publishes images/releases — these
-  are outward-facing. Confirm the version with the user before pushing anything.
+- This skill pushes tags, triggers builds and publishes images/GitHub Releases —
+  these are outward-facing. Confirm the version with the user before pushing
+  anything. Show the user the computed changelog before publishing it if unsure.
 - Never force-push or delete existing tags/releases unless the user explicitly
   asks.
 - If any repo fails mid-way (e.g. push rejected), stop and report which repos
